@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Page Pilot 设置</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="options">
+      <h1>Page Pilot 设置</h1>
+
+      <label class="setting-row">
+        <span>
+          <strong>跳过确认步骤</strong>
+          <small>打开后，右键总结会直接发送到 Kimi。</small>
+        </span>
+        <input id="skip-confirmation" type="checkbox">
+      </label>
+
+      <label class="setting-column">
+        <span>
+          <strong>最大 Prompt 长度</strong>
+          <small>超过后会自动截断，默认 12000 字符。</small>
+        </span>
+        <input id="max-prompt-length" type="number" min="1000" max="50000" step="1000">
+      </label>
+
+      <div class="actions">
+        <button id="reset-session" class="secondary-button">重置 Kimi 会话</button>
+        <button id="save" class="primary-button">保存设置</button>
+      </div>
+
+      <p id="status" class="options-status"></p>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

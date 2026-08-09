@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Page Pilot</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="panel">
+      <section id="review-view" class="view">
+        <header class="header">
+          <div>
+            <h1>Page Pilot</h1>
+            <p id="status">等待页面内容</p>
+          </div>
+          <button id="settings-button" class="icon-button" title="打开设置" aria-label="打开设置">⚙</button>
+        </header>
+
+        <section class="block">
+          <div class="block-title">提炼结果</div>
+          <pre id="markdown-preview" class="preview">右键页面并选择“总结页面”。</pre>
+        </section>
+
+        <section class="block">
+          <div class="block-title">附件内容</div>
+          <div id="attachment-meta" class="attachment-meta">尚未生成附件</div>
+          <pre id="attachment-preview" class="preview preview--compact">页面正文会作为附件发送给 Kimi。</pre>
+        </section>
+
+        <section class="block">
+          <label class="block-title" for="prompt-editor">待发送 Prompt</label>
+          <textarea id="prompt-editor" class="prompt-editor" spellcheck="false"></textarea>
+        </section>
+
+        <footer class="actions">
+          <button id="reset-session-button" class="secondary-button">重置会话</button>
+          <button id="send-button" class="primary-button" disabled>发送到 Kimi</button>
+        </footer>
+      </section>
+
+      <section id="deepseek-view" class="view hidden">
+        <div class="deepseek-toolbar">
+          <button id="back-button" class="secondary-button">返回预览</button>
+          <span id="deepseek-status">正在打开 Kimi...</span>
+        </div>
+        <iframe id="deepseek-frame" title="Kimi" src="https://www.kimi.com/" frameborder="0"></iframe>
+      </section>
+    </main>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

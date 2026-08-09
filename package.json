@@ -1,0 +1,18 @@
+{
+  "name": "page-pilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome extension that extracts page content and sends summary prompts to DeepSeek web chat.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "npm run build"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "turndown": "^7.2.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
