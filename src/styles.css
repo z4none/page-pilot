@@ -212,6 +212,25 @@ input {
   gap: 8px;
 }
 
+.modal-actions__secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-prompt-editor {
+  width: 100%;
+  min-height: 118px;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .panel-section {
   min-height: 0;
   flex: 1;
@@ -300,11 +319,16 @@ input {
   color: var(--muted);
 }
 
-.setting-column input {
+.setting-column input,
+.setting-column textarea {
   max-width: 220px;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.setting-column textarea {
+  max-width: none;
 }
 
 .options-status {

@@ -26,7 +26,16 @@
         <input id="max-prompt-length" type="number" min="1000" max="50000" step="1000">
       </label>
 
+      <label class="setting-column">
+        <span>
+          <strong>默认提示词</strong>
+          <small>页面正文会作为附件上传，这里只写总结任务要求。</small>
+        </span>
+        <textarea id="summary-prompt" class="settings-prompt-editor" spellcheck="false"></textarea>
+      </label>
+
       <div class="actions">
+        <button id="reset-prompt" class="secondary-button">恢复默认提示词</button>
         <button id="reset-session" class="secondary-button">重置 Kimi 会话</button>
         <button id="save" class="primary-button">保存设置</button>
       </div>

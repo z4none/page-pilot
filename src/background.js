@@ -8,6 +8,19 @@ const STORAGE_KEYS = {
 const DEFAULT_SETTINGS = {
   skipConfirmation: true,
   maxPromptLength: 12000,
+  summaryPrompt: "",
+  summaryPromptCustomized: false,
+};
+
+const DEFAULT_SUMMARY_PROMPTS = {
+  zh: [
+    "请基于我上传的页面附件，总结主要内容，提炼关键要点，并指出值得继续追问的问题。",
+    "输出请使用中文。",
+  ].join("\n"),
+  en: [
+    "Please summarize the page attachment I uploaded, extract the key points, and suggest useful follow-up questions.",
+    "Respond in English.",
+  ].join("\n"),
 };
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -134,10 +147,8 @@ function buildMarkdownPayload(result, settings) {
   const title = result.title || "Untitled page";
   const markdown = result.markdown || "";
   const attachmentContent = buildAttachmentContent(result);
-  const prompt = limitPrompt([
-    "请基于我上传的页面附件，总结主要内容，提炼关键要点，并指出值得继续追问的问题。",
-    "输出请使用中文。",
-  ].join("\n"), settings.maxPromptLength);
+  const promptTemplate = resolveSummaryPrompt(settings);
+  const prompt = limitPrompt(promptTemplate, settings.maxPromptLength);
 
   return {
     mode: "markdown",
@@ -151,12 +162,25 @@ function buildMarkdownPayload(result, settings) {
       content: attachmentContent,
       size: attachmentContent.length,
     },
-    truncated: prompt.length < [
-      "请基于我上传的页面附件，总结主要内容，提炼关键要点，并指出值得继续追问的问题。",
-      "输出请使用中文。",
-    ].join("\n").length,
+    truncated: prompt.length < promptTemplate.length,
     createdAt: new Date().toISOString(),
   };
+}
+
+function resolveSummaryPrompt(settings) {
+  const customPrompt = String(settings?.summaryPrompt || "").trim();
+  if (settings?.summaryPromptCustomized && customPrompt) {
+    return customPrompt;
+  }
+
+  return getLocalizedDefaultSummaryPrompt();
+}
+
+function getLocalizedDefaultSummaryPrompt() {
+  const language = chrome.i18n?.getUILanguage?.() || navigator.language || "";
+  return String(language).toLowerCase().startsWith("zh")
+    ? DEFAULT_SUMMARY_PROMPTS.zh
+    : DEFAULT_SUMMARY_PROMPTS.en;
 }
 
 function buildAttachmentContent(result) {

@@ -78,10 +78,21 @@
             <input id="modal-max-prompt-length" type="number" min="1000" max="50000" step="1000">
           </label>
 
+          <label class="setting-column setting-column--compact">
+            <span>
+              <strong>默认提示词</strong>
+              <small>页面正文会作为附件上传，这里只写总结任务要求。</small>
+            </span>
+            <textarea id="modal-summary-prompt" class="settings-prompt-editor" spellcheck="false"></textarea>
+          </label>
+
           <p id="settings-modal-status" class="options-status"></p>
 
           <footer class="modal-actions">
-            <button id="modal-reset-session" class="secondary-button">重置 Kimi 会话</button>
+            <div class="modal-actions__secondary">
+              <button id="modal-reset-prompt" class="secondary-button">恢复默认提示词</button>
+              <button id="modal-reset-session" class="secondary-button">重置 Kimi 会话</button>
+            </div>
             <div class="modal-actions__primary">
               <button id="settings-cancel" class="secondary-button">取消</button>
               <button id="settings-save" class="primary-button">保存</button>

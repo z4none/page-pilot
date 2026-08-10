@@ -9,12 +9,26 @@ const STORAGE_KEYS = {
   kimiChatUrl: "activeKimiChatUrl",
 };
 
+const DEFAULT_SUMMARY_PROMPTS = {
+  zh: [
+    "请基于我上传的页面附件，总结主要内容，提炼关键要点，并指出值得继续追问的问题。",
+    "输出请使用中文。",
+  ].join("\n"),
+  en: [
+    "Please summarize the page attachment I uploaded, extract the key points, and suggest useful follow-up questions.",
+    "Respond in English.",
+  ].join("\n"),
+};
+
 const state = {
   payload: null,
   settings: {
     skipConfirmation: true,
     maxPromptLength: 12000,
+    summaryPrompt: "",
+    summaryPromptCustomized: false,
   },
+  settingsPromptCustomizedDraft: false,
   panelMode: "idle",
   pendingPrompt: null,
   pendingAttachment: null,
@@ -48,6 +62,8 @@ const elements = {
   settingsModal: document.querySelector("#settings-modal"),
   modalSkipConfirmation: document.querySelector("#modal-skip-confirmation"),
   modalMaxPromptLength: document.querySelector("#modal-max-prompt-length"),
+  modalSummaryPrompt: document.querySelector("#modal-summary-prompt"),
+  modalResetPrompt: document.querySelector("#modal-reset-prompt"),
   modalResetSession: document.querySelector("#modal-reset-session"),
   settingsSave: document.querySelector("#settings-save"),
   settingsCancel: document.querySelector("#settings-cancel"),
@@ -87,6 +103,10 @@ async function init() {
   elements.settingsCancel.addEventListener("click", closeSettingsModal);
   elements.settingsCancelIcon.addEventListener("click", closeSettingsModal);
   elements.settingsModal.addEventListener("click", handleSettingsOverlayClick);
+  elements.modalSummaryPrompt.addEventListener("input", () => {
+    state.settingsPromptCustomizedDraft = true;
+  });
+  elements.modalResetPrompt.addEventListener("click", resetPromptToLocalizedDefault);
   elements.modalResetSession.addEventListener("click", resetKimiChatSession);
   elements.resetSessionButton.addEventListener("click", resetSession);
   elements.deepseekFrame.addEventListener("load", () => {
@@ -204,12 +224,15 @@ function setStatus(message) {
 function openSettingsModal() {
   elements.modalSkipConfirmation.checked = Boolean(state.settings.skipConfirmation);
   elements.modalMaxPromptLength.value = String(state.settings.maxPromptLength || 12000);
+  elements.modalSummaryPrompt.value = resolveSummaryPrompt(state.settings);
+  state.settingsPromptCustomizedDraft = Boolean(state.settings.summaryPromptCustomized && String(state.settings.summaryPrompt || "").trim());
   elements.settingsModalStatus.textContent = "";
   elements.settingsModal.classList.remove("hidden");
   elements.modalSkipConfirmation.focus();
   debug("openSettingsModal", {
     skipConfirmation: state.settings.skipConfirmation,
     maxPromptLength: state.settings.maxPromptLength,
+    summaryPromptCustomized: state.settings.summaryPromptCustomized,
   });
 }
 
@@ -226,9 +249,12 @@ function handleSettingsOverlayClick(event) {
 }
 
 async function saveSettingsFromModal() {
+  const summaryPrompt = String(elements.modalSummaryPrompt.value || "").trim() || getLocalizedDefaultSummaryPrompt();
   const settings = {
     skipConfirmation: elements.modalSkipConfirmation.checked,
     maxPromptLength: Number(elements.modalMaxPromptLength.value) || state.settings.maxPromptLength || 12000,
+    summaryPrompt,
+    summaryPromptCustomized: state.settingsPromptCustomizedDraft,
   };
 
   state.settings = {
@@ -245,6 +271,15 @@ async function saveSettingsFromModal() {
       closeSettingsModal();
     }
   }, 450);
+}
+
+function resetPromptToLocalizedDefault() {
+  elements.modalSummaryPrompt.value = getLocalizedDefaultSummaryPrompt();
+  state.settingsPromptCustomizedDraft = false;
+  elements.settingsModalStatus.textContent = "已恢复默认提示词，保存后生效。";
+  debug("resetPromptToLocalizedDefault", {
+    language: getCurrentLanguage(),
+  });
 }
 
 async function resetKimiChatSession() {
@@ -548,6 +583,25 @@ function getPayloadKey(payload) {
     payload?.url || "",
     payload?.prompt || "",
   ].join("|");
+}
+
+function resolveSummaryPrompt(settings) {
+  const customPrompt = String(settings?.summaryPrompt || "").trim();
+  if (settings?.summaryPromptCustomized && customPrompt) {
+    return customPrompt;
+  }
+
+  return getLocalizedDefaultSummaryPrompt();
+}
+
+function getLocalizedDefaultSummaryPrompt() {
+  return getCurrentLanguage().startsWith("zh")
+    ? DEFAULT_SUMMARY_PROMPTS.zh
+    : DEFAULT_SUMMARY_PROMPTS.en;
+}
+
+function getCurrentLanguage() {
+  return String(chrome.i18n?.getUILanguage?.() || navigator.language || "").toLowerCase();
 }
 
 function debug(message, extra) {
