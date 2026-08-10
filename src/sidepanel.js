@@ -19,6 +19,7 @@ const state = {
   pendingAttachment: null,
   pendingRequestId: null,
   pendingAutoSend: false,
+  pendingStartedAt: 0,
   sendPending: false,
   autoSentPayloadKey: null,
   sendScheduled: false,
@@ -213,8 +214,8 @@ async function sendToKimi(options = {}) {
   state.pendingAttachment = attachment;
   state.pendingRequestId = createRequestId();
   state.pendingAutoSend = autoSend;
+  state.pendingStartedAt = Date.now();
   state.sendPending = true;
-  state.deepseekReady = false;
 
   await chrome.storage.session.set({
     [STORAGE_KEYS.payload]: {
@@ -326,6 +327,7 @@ function sendCurrentPrompt() {
     deepseekReady: state.deepseekReady,
     requestId: state.pendingRequestId,
     autoSend: state.pendingAutoSend,
+    pendingAgeMs: state.pendingStartedAt ? Date.now() - state.pendingStartedAt : 0,
     attachmentName: messageAttachment?.name || "",
     attachmentSize: messageAttachment?.size || 0,
     attachmentContentLength: messageAttachment?.content?.length || 0,
@@ -353,6 +355,7 @@ function sendCurrentPrompt() {
 
   state.pendingPrompt = null;
   state.pendingRequestId = null;
+  state.pendingStartedAt = 0;
   elements.kimiStatus.textContent = state.pendingAutoSend
     ? "已触发发送。"
     : "已填入，等待你手动发送。";
@@ -374,7 +377,10 @@ function scheduleSendRetry() {
   if (state.sendScheduled) return;
 
   state.sendScheduled = true;
-  debug("schedule send after load");
+  debug("schedule send after load", {
+    deepseekReady: state.deepseekReady,
+    pendingAgeMs: state.pendingStartedAt ? Date.now() - state.pendingStartedAt : 0,
+  });
   setTimeout(() => {
     state.sendScheduled = false;
     flushPendingPrompt();
@@ -384,6 +390,18 @@ function scheduleSendRetry() {
 function flushPendingPrompt() {
   if (!state.sendPending || !state.pendingPrompt) return;
   if (!state.deepseekReady) {
+    const pendingAgeMs = state.pendingStartedAt ? Date.now() - state.pendingStartedAt : 0;
+    if (pendingAgeMs > 10000) {
+      const errorMessage = "发送失败：Kimi 尚未就绪，请重试。";
+      elements.kimiStatus.textContent = errorMessage;
+      setStatus(errorMessage);
+      state.sendPending = false;
+      debug("send wait timed out", {
+        pendingAgeMs,
+        frameSrc: elements.deepseekFrame.src,
+      });
+      return;
+    }
     scheduleSendRetry();
     return;
   }
@@ -403,6 +421,7 @@ async function resetSession() {
   state.pendingAttachment = null;
   state.pendingRequestId = null;
   state.sendPending = false;
+  state.pendingStartedAt = 0;
   state.autoSentPayloadKey = null;
   state.deepseekReady = false;
   state.pendingAutoSend = false;
