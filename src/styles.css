@@ -31,10 +31,9 @@ input {
 
 .panel {
   height: 100vh;
-}
-
-.view {
-  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .hidden {
@@ -49,6 +48,12 @@ input {
   padding: 14px;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .header h1,
@@ -157,7 +162,48 @@ input {
   background: var(--surface);
 }
 
-.deepseek-toolbar {
+.panel-section {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.loading-state {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+}
+
+.loading-copy strong {
+  display: block;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.loading-copy p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--line);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.review-panel {
+  overflow: auto;
+}
+
+.kimi-toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -172,9 +218,15 @@ input {
 #deepseek-frame {
   display: block;
   width: 100%;
-  height: calc(100vh - 50px);
+  height: calc(100% - 50px);
   border: 0;
   background: white;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .options {

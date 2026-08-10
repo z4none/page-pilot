@@ -8,15 +8,28 @@
   </head>
   <body>
     <main class="panel">
-      <section id="review-view" class="view">
-        <header class="header">
-          <div>
-            <h1>Page Pilot</h1>
-            <p id="status">等待页面内容</p>
-          </div>
+      <header class="header">
+        <div>
+          <h1>Page Pilot</h1>
+          <p id="status">等待页面内容</p>
+        </div>
+        <div class="toolbar-actions">
           <button id="settings-button" class="icon-button" title="打开设置" aria-label="打开设置">⚙</button>
-        </header>
+          <button id="reset-session-button" class="icon-button" title="重置会话" aria-label="重置会话">↻</button>
+        </div>
+      </header>
 
+      <section id="loading-panel" class="panel-section hidden">
+        <div class="loading-state">
+          <div class="spinner" aria-hidden="true"></div>
+          <div class="loading-copy">
+            <strong id="loading-title">正在提取页面内容...</strong>
+            <p id="loading-detail">Kimi 会在后台准备。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="review-panel" class="panel-section review-panel hidden">
         <section class="block">
           <div class="block-title">提炼结果</div>
           <pre id="markdown-preview" class="preview">右键页面并选择“总结页面”。</pre>
@@ -34,15 +47,13 @@
         </section>
 
         <footer class="actions">
-          <button id="reset-session-button" class="secondary-button">重置会话</button>
-          <button id="send-button" class="primary-button" disabled>发送到 Kimi</button>
+          <button id="send-button" class="primary-button" disabled>总结</button>
         </footer>
       </section>
 
-      <section id="deepseek-view" class="view hidden">
-        <div class="deepseek-toolbar">
-          <button id="back-button" class="secondary-button">返回预览</button>
-          <span id="deepseek-status">正在打开 Kimi...</span>
+      <section id="kimi-panel" class="panel-section kimi-panel hidden">
+        <div class="kimi-toolbar">
+          <span id="kimi-status">正在准备 Kimi...</span>
         </div>
         <iframe id="deepseek-frame" title="Kimi" src="https://www.kimi.com/" frameborder="0"></iframe>
       </section>

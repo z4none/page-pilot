@@ -14,6 +14,7 @@ const state = {
     skipConfirmation: true,
     maxPromptLength: 12000,
   },
+  panelMode: "idle",
   pendingPrompt: null,
   pendingAttachment: null,
   pendingRequestId: null,
@@ -22,11 +23,15 @@ const state = {
   autoSentPayloadKey: null,
   sendScheduled: false,
   deepseekReady: false,
+  kimiFrameRequested: false,
 };
 
 const elements = {
-  reviewView: document.querySelector("#review-view"),
-  deepseekView: document.querySelector("#deepseek-view"),
+  loadingPanel: document.querySelector("#loading-panel"),
+  loadingTitle: document.querySelector("#loading-title"),
+  loadingDetail: document.querySelector("#loading-detail"),
+  reviewPanel: document.querySelector("#review-panel"),
+  kimiPanel: document.querySelector("#kimi-panel"),
   status: document.querySelector("#status"),
   markdownPreview: document.querySelector("#markdown-preview"),
   attachmentMeta: document.querySelector("#attachment-meta"),
@@ -35,8 +40,7 @@ const elements = {
   sendButton: document.querySelector("#send-button"),
   settingsButton: document.querySelector("#settings-button"),
   resetSessionButton: document.querySelector("#reset-session-button"),
-  backButton: document.querySelector("#back-button"),
-  deepseekStatus: document.querySelector("#deepseek-status"),
+  kimiStatus: document.querySelector("#kimi-status"),
   deepseekFrame: document.querySelector("#deepseek-frame"),
 };
 
@@ -55,6 +59,10 @@ async function init() {
 
   if (session.panelStatus) {
     setStatus(session.panelStatus.message);
+    if (session.panelStatus.state === "extracting") {
+      enterExtractingState(session.panelStatus.message);
+      preloadKimiFrame();
+    }
   }
 
   if (session.lastPromptPayload) {
@@ -66,7 +74,6 @@ async function init() {
     chrome.runtime.sendMessage({ type: "PAGE_PILOT_OPEN_OPTIONS" });
   });
   elements.resetSessionButton.addEventListener("click", resetSession);
-  elements.backButton.addEventListener("click", showReview);
   elements.deepseekFrame.addEventListener("load", () => {
     debug("iframe load", { src: elements.deepseekFrame.src });
     if (elements.deepseekFrame.src === "about:blank") return;
@@ -74,6 +81,12 @@ async function init() {
       scheduleSendRetry();
     }
   });
+
+  if (!session.panelStatus?.state && !session.lastPromptPayload) {
+    enterIdleState();
+  } else if (session.lastPromptPayload && session.panelStatus?.state !== "extracting") {
+    enterReviewState();
+  }
 }
 
 function handleReviewSendClick() {
@@ -90,6 +103,10 @@ function handleReviewSendClick() {
 function handleRuntimeMessage(message) {
   if (message?.type === "PAGE_PILOT_STATUS") {
     setStatus(message.status.message);
+    if (message.status.state === "extracting") {
+      enterExtractingState(message.status.message);
+      preloadKimiFrame();
+    }
   }
 
   if (message?.type === "PAGE_PILOT_PAYLOAD_READY") {
@@ -102,15 +119,19 @@ function handleRuntimeMessage(message) {
       skipConfirmation: state.settings.skipConfirmation,
     });
     renderPayload(message.payload);
-    maybeAutoSend(message.payload);
+    if (!maybeAutoSend(message.payload)) {
+      enterReviewState();
+    }
   }
 
   if (message?.type === "PAGE_PILOT_DEEPSEEK_SEND_RESULT" || message?.type === "DEEPSEEK_SEND_RESULT") {
     if (message.ok) {
-      elements.deepseekStatus.textContent = "已发送，接下来由 Kimi 处理。";
+      elements.kimiStatus.textContent = "已发送，接下来由 Kimi 处理。";
     } else {
-      elements.deepseekStatus.textContent = `发送失败：${message.error || "未找到 Kimi 输入框"}`;
-      setStatus(elements.deepseekStatus.textContent);
+      const errorMessage = `发送失败：${message.error || "未找到 Kimi 输入框"}`;
+      elements.kimiStatus.textContent = errorMessage;
+      setStatus(errorMessage);
+      enterKimiState(errorMessage);
     }
   }
 
@@ -136,10 +157,6 @@ function renderPayload(payload) {
   renderAttachment(payload?.attachment || null);
   elements.promptEditor.value = payload.prompt || "";
   elements.sendButton.disabled = !payload.prompt;
-
-  const modeText = payload.mode === "markdown" ? "正文提炼完成" : "已切换为 URL 方案";
-  const truncatedText = payload.truncated ? "，内容已截断" : "";
-  setStatus(`${modeText}${truncatedText}。`);
 }
 
 function renderAttachment(attachment) {
@@ -205,15 +222,15 @@ async function sendToKimi(options = {}) {
     },
   });
 
-  showDeepSeek();
+  enterKimiState(autoSend ? "正在上传附件并发送到 Kimi..." : "正在填入 Kimi 输入框...");
   flushPendingPrompt();
 }
 
 function maybeAutoSend(payload) {
-  if (!state.settings.skipConfirmation) return;
+  if (!state.settings.skipConfirmation) return false;
 
   const key = getPayloadKey(payload);
-  if (state.autoSentPayloadKey === key) return;
+  if (state.autoSentPayloadKey === key) return true;
 
   state.autoSentPayloadKey = key;
   debug("auto-send armed", {
@@ -221,28 +238,71 @@ function maybeAutoSend(payload) {
     promptLength: payload?.prompt?.length || 0,
     markdownLength: payload?.markdown?.length || 0,
   });
+  enterKimiState("正在准备 Kimi 输入框...");
   sendToKimi({
     autoSend: true,
     promptOverride: payload?.prompt || "",
   });
+  return true;
 }
 
-function showDeepSeek() {
-  elements.reviewView.classList.add("hidden");
-  elements.deepseekView.classList.remove("hidden");
-  elements.deepseekStatus.textContent = "正在准备 Kimi 输入框...";
-  debug("showDeepSeek");
-
-  elements.deepseekFrame.src = "about:blank";
-  setTimeout(() => {
-    debug("set Kimi src");
-    elements.deepseekFrame.src = KIMI_URL;
-  }, 0);
+function enterIdleState() {
+  state.panelMode = "idle";
+  syncPanelMode();
+  setStatus("等待页面内容");
 }
 
-function showReview() {
-  elements.deepseekView.classList.add("hidden");
-  elements.reviewView.classList.remove("hidden");
+function enterExtractingState(message = "正在提取页面内容...") {
+  state.panelMode = "extracting";
+  syncPanelMode();
+  elements.loadingTitle.textContent = message || "正在提取页面内容...";
+  elements.loadingDetail.textContent = "Kimi 会在后台准备。";
+  setStatus(message || "正在提取页面内容...");
+  preloadKimiFrame();
+  debug("enterExtractingState", { message });
+}
+
+function enterReviewState() {
+  state.panelMode = "review";
+  syncPanelMode();
+  const modeText = state.payload?.mode === "markdown" ? "正文已提炼，等待确认。" : "已切换为 URL 方案，等待确认。";
+  const truncatedText = state.payload?.truncated ? "内容已截断。" : "";
+  setStatus(truncatedText ? `${modeText} ${truncatedText}` : modeText);
+  debug("enterReviewState", {
+    promptLength: state.payload?.prompt?.length || 0,
+    attachmentName: state.payload?.attachment?.name || "",
+  });
+}
+
+function enterKimiState(message = "正在准备 Kimi 输入框...") {
+  state.panelMode = "kimi";
+  syncPanelMode();
+  elements.kimiStatus.textContent = message;
+  setStatus(message);
+  preloadKimiFrame();
+  debug("enterKimiState", { message });
+}
+
+function preloadKimiFrame() {
+  if (state.kimiFrameRequested && elements.deepseekFrame.src === KIMI_URL) return;
+  if (elements.deepseekFrame.src === KIMI_URL) {
+    state.kimiFrameRequested = true;
+    return;
+  }
+
+  state.kimiFrameRequested = true;
+  debug("preloadKimiFrame");
+  elements.deepseekFrame.src = KIMI_URL;
+}
+
+function syncPanelMode() {
+  const loadingVisible = state.panelMode === "extracting";
+  const reviewVisible = state.panelMode === "review";
+  const kimiVisible = state.panelMode === "kimi";
+
+  elements.loadingPanel.classList.toggle("hidden", !loadingVisible);
+  elements.reviewPanel.classList.toggle("hidden", !reviewVisible);
+  elements.kimiPanel.classList.toggle("hidden", !kimiVisible);
 }
 
 function sendCurrentPrompt() {
@@ -270,11 +330,11 @@ function sendCurrentPrompt() {
   });
 
   if (!state.deepseekReady) {
-    elements.deepseekStatus.textContent = "正在等待 Kimi 加载完成...";
+    elements.kimiStatus.textContent = "正在等待 Kimi 加载完成...";
     return;
   }
 
-  elements.deepseekStatus.textContent = state.pendingAutoSend
+  elements.kimiStatus.textContent = state.pendingAutoSend
     ? "正在上传附件并发送到 Kimi..."
     : "正在填入 Kimi 输入框...";
   state.sendPending = false;
@@ -291,7 +351,7 @@ function sendCurrentPrompt() {
 
   state.pendingPrompt = null;
   state.pendingRequestId = null;
-  elements.deepseekStatus.textContent = state.pendingAutoSend
+  elements.kimiStatus.textContent = state.pendingAutoSend
     ? "已触发发送。"
     : "已填入，等待你手动发送。";
   debug("postMessage sent", {
@@ -344,8 +404,11 @@ async function resetSession() {
   state.autoSentPayloadKey = null;
   state.deepseekReady = false;
   state.pendingAutoSend = false;
+  state.kimiFrameRequested = false;
+  state.panelMode = "idle";
   await chrome.storage.session.remove(STORAGE_KEYS.payload);
-  elements.deepseekFrame.src = KIMI_URL;
+  elements.deepseekFrame.src = "about:blank";
+  syncPanelMode();
   setStatus("Kimi 会话已重置。");
   debug("resetSession");
 }
