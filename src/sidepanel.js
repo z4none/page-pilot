@@ -41,7 +41,7 @@ const elements = {
   sendButton: document.querySelector("#send-button"),
   settingsButton: document.querySelector("#settings-button"),
   resetSessionButton: document.querySelector("#reset-session-button"),
-  kimiStatus: document.querySelector("#kimi-status"),
+  kimiStatus: document.querySelector("#status"),
   deepseekFrame: document.querySelector("#deepseek-frame"),
 };
 

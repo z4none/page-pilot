@@ -203,22 +203,10 @@ input {
   overflow: auto;
 }
 
-.kimi-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 50px;
-  padding: 8px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 13px;
-}
-
 #deepseek-frame {
   display: block;
   width: 100%;
-  height: calc(100% - 50px);
+  height: 100%;
   border: 0;
   background: white;
 }
