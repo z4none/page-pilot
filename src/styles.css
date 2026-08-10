@@ -36,10 +36,6 @@ input {
   min-height: 0;
 }
 
-.hidden {
-  display: none;
-}
-
 .header {
   display: flex;
   align-items: center;
@@ -167,6 +163,10 @@ input {
   flex: 1;
   display: flex;
   flex-direction: column;
+}
+
+.hidden {
+  display: none !important;
 }
 
 .loading-state {

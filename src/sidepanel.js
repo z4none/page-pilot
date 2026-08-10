@@ -126,7 +126,9 @@ function handleRuntimeMessage(message) {
 
   if (message?.type === "PAGE_PILOT_DEEPSEEK_SEND_RESULT" || message?.type === "DEEPSEEK_SEND_RESULT") {
     if (message.ok) {
-      elements.kimiStatus.textContent = "已发送，接下来由 Kimi 处理。";
+      const successMessage = "已发送，接下来由 Kimi 处理。";
+      elements.kimiStatus.textContent = successMessage;
+      setStatus(successMessage);
     } else {
       const errorMessage = `发送失败：${message.error || "未找到 Kimi 输入框"}`;
       elements.kimiStatus.textContent = errorMessage;
