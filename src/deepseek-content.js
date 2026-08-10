@@ -261,7 +261,7 @@
 
       return { ok: true };
     } catch (error) {
-      debug("handleSendPrompt failed", String(error?.message || error));
+      debug("handleSendPrompt failed", { error: String(error?.message || error) });
       return {
         ok: false,
         error: String(error?.message || error),
@@ -366,7 +366,16 @@
     if (!fileInput) {
       debug("attachment entry not found", {
         selectors: ["input[type=file]", "upload trigger", "drop target"],
+        pasted,
       });
+      if (pasted) {
+        debug("attachAttachment complete", {
+          method: "pasteUnverified",
+          reason: "file paste dispatched but no visible attachment indicator or upload input was found",
+          elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+        });
+        return;
+      }
       throw new Error("Kimi 未找到文件上传入口");
     }
 

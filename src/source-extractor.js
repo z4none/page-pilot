@@ -1,10 +1,20 @@
 import { Readability } from "@mozilla/readability";
 import TurndownService from "turndown";
 
+const DEBUG_PREFIX = "[PAGE-PILOT]";
+const DEBUG_STARTED_AT = performance.now();
+
 (async () => {
   try {
+    debug("extractor start", { href: location.href, title: document.title });
     const article = await extractArticle();
     const markdown = normalizeMarkdown(article.markdown);
+    debug("extractor markdown normalized", {
+      title: article.title || document.title,
+      markdownLength: markdown.length,
+      textLength: article.textLength || 0,
+      contentLength: article.contentLength || 0,
+    });
 
     if (markdown.length < 80) {
       throw new Error("提炼出的正文过短");
@@ -21,7 +31,9 @@ import TurndownService from "turndown";
         byline: article.byline || "",
       },
     });
+    debug("extractor result sent", { ok: true, markdownLength: markdown.length });
   } catch (error) {
+    debug("extractor failed", { error: String(error?.message || error) });
     await chrome.runtime.sendMessage({
       type: "PAGE_PILOT_EXTRACTION_RESULT",
       payload: {
@@ -35,20 +47,20 @@ import TurndownService from "turndown";
 })();
 
 async function extractArticle() {
-  if (isRedditThreadUrl(location.href)) {
-    try {
-      return await extractRedditThread();
-    } catch {
-      // Fall back to the generic extractor if Reddit JSON parsing fails.
-    }
-  }
-
   return extractGenericArticle();
 }
 
 function extractGenericArticle() {
+  const startedAt = performance.now();
+  debug("readability start", {
+    nbTopCandidates: 20,
+    charThreshold: 80,
+    keepClasses: false,
+  });
   const documentClone = document.cloneNode(true);
   const reader = new Readability(documentClone, {
+    nbTopCandidates: 20,
+    charThreshold: 80,
     keepClasses: false,
   });
   const article = reader.parse();
@@ -59,101 +71,22 @@ function extractGenericArticle() {
 
   const turndown = createTurndown();
   const markdown = turndown.turndown(article.content);
+  debug("readability complete", {
+    elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+    title: article.title || document.title,
+    textLength: article.textContent.length,
+    contentLength: article.content.length,
+    markdownLength: markdown.length,
+  });
 
   return {
     title: article.title || document.title,
     markdown,
     excerpt: article.excerpt || "",
     byline: article.byline || "",
+    textLength: article.textContent.length,
+    contentLength: article.content.length,
   };
-}
-
-async function extractRedditThread() {
-  const pageUrl = new URL(location.href);
-  const apiUrl = new URL(pageUrl.href);
-  apiUrl.pathname = apiUrl.pathname.replace(/\/?$/, ".json");
-  apiUrl.searchParams.set("raw_json", "1");
-  apiUrl.searchParams.set("limit", "500");
-  apiUrl.searchParams.set("depth", "20");
-  apiUrl.searchParams.set("sort", "top");
-
-  const response = await fetch(apiUrl.toString(), {
-    credentials: "include",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Reddit JSON 拉取失败：${response.status}`);
-  }
-
-  const data = await response.json();
-  const post = data?.[0]?.data?.children?.[0]?.data;
-  const comments = data?.[1]?.data?.children || [];
-
-  if (!post) {
-    throw new Error("没有找到 Reddit 帖子内容");
-  }
-
-  const lines = [];
-  lines.push(`# ${sanitizeText(post.title || document.title)}`);
-  lines.push("");
-
-  if (post.selftext_html) {
-    const turndown = createTurndown();
-    lines.push(normalizeMarkdown(turndown.turndown(decodeHtml(post.selftext_html))));
-    lines.push("");
-  } else if (post.selftext) {
-    lines.push(sanitizeText(post.selftext));
-    lines.push("");
-  }
-
-  if (post.url && post.is_self === false) {
-    lines.push(`来源链接：${post.url}`);
-    lines.push("");
-  }
-
-  const commentLines = [];
-  collectRedditComments(comments, commentLines, 0);
-
-  if (commentLines.length) {
-    lines.push("## Comments");
-    lines.push("");
-    lines.push(...commentLines);
-  }
-
-  return {
-    title: post.title || document.title,
-    markdown: lines.join("\n").trim(),
-    excerpt: post.selftext?.slice(0, 280) || "",
-    byline: post.author ? `u/${post.author}` : "",
-  };
-}
-
-function collectRedditComments(nodes, output, depth) {
-  for (const node of nodes) {
-    if (node?.kind === "t1" && node.data) {
-      const author = node.data.author ? `u/${node.data.author}` : "u/[deleted]";
-      const score = typeof node.data.score === "number" ? `${node.data.score} points` : "score hidden";
-      const body = sanitizeText(node.data.body || "");
-      const indent = "  ".repeat(depth);
-      const quotedBody = body.split("\n").map((line) => `${indent}  > ${line || ""}`).join("\n");
-
-      output.push(`${indent}- ${author} (${score})`);
-      output.push(quotedBody);
-      output.push("");
-
-      const replies = node.data.replies?.data?.children || [];
-      if (replies.length) {
-        collectRedditComments(replies, output, depth + 1);
-      }
-      continue;
-    }
-
-    if (node?.kind === "more" && Array.isArray(node.data?.children) && node.data.children.length) {
-      const indent = "  ".repeat(depth);
-      output.push(`${indent}- [还有 ${node.data.children.length} 条评论未展开]`);
-      output.push("");
-    }
-  }
 }
 
 function createTurndown() {
@@ -167,27 +100,55 @@ function createTurndown() {
   return turndown;
 }
 
-function isRedditThreadUrl(url) {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname.endsWith("reddit.com") && parsed.pathname.includes("/comments/");
-  } catch {
-    return false;
-  }
-}
-
-function decodeHtml(value) {
-  const textarea = document.createElement("textarea");
-  textarea.innerHTML = String(value || "");
-  return textarea.value;
-}
-
 function sanitizeText(value) {
   return String(value || "")
     .replace(/\u00a0/g, " ")
     .replace(/\r\n/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
     .trim();
+}
+
+function debug(message, extra) {
+  const meta = {
+    t: Number((performance.now() - DEBUG_STARTED_AT).toFixed(1)),
+    at: new Date().toISOString(),
+  };
+  if (extra !== undefined) {
+    console.log(`${DEBUG_PREFIX} ${message} ${toJson({ ...meta, ...extra })}`);
+    return;
+  }
+
+  console.log(`${DEBUG_PREFIX} ${message} ${toJson(meta)}`);
+}
+
+function toJson(value) {
+  try {
+    const json = JSON.stringify(truncateForLog(value));
+    if (json.length <= 1200) return json;
+    return JSON.stringify({
+      __truncated: true,
+      preview: json.slice(0, 1200),
+    });
+  } catch (error) {
+    return JSON.stringify({ error: String(error?.message || error) });
+  }
+}
+
+function truncateForLog(value, depth = 0) {
+  if (value == null) return value;
+  if (typeof value === "string") return value.length > 200 ? `${value.slice(0, 200)}…` : value;
+  if (typeof value !== "object") return value;
+  if (depth > 2) return Array.isArray(value) ? "[Array]" : "[Object]";
+
+  if (Array.isArray(value)) {
+    return value.slice(0, 15).map((item) => truncateForLog(item, depth + 1));
+  }
+
+  const result = {};
+  for (const [key, item] of Object.entries(value).slice(0, 20)) {
+    result[key] = truncateForLog(item, depth + 1);
+  }
+  return result;
 }
 
 function normalizeMarkdown(markdown) {
