@@ -6,6 +6,7 @@ const STORAGE_KEYS = {
   payload: "lastPromptPayload",
   status: "panelStatus",
   settings: "settings",
+  kimiChatUrl: "activeKimiChatUrl",
 };
 
 const state = {
@@ -25,6 +26,7 @@ const state = {
   sendScheduled: false,
   deepseekReady: false,
   kimiFrameRequested: false,
+  kimiChatUrl: "",
 };
 
 const elements = {
@@ -50,13 +52,14 @@ init();
 async function init() {
   chrome.runtime.onMessage.addListener(handleRuntimeMessage);
 
-  const session = await chrome.storage.session.get([STORAGE_KEYS.payload, STORAGE_KEYS.status]);
+  const session = await chrome.storage.session.get([STORAGE_KEYS.payload, STORAGE_KEYS.status, STORAGE_KEYS.kimiChatUrl]);
   const sync = await chrome.storage.sync.get(STORAGE_KEYS.settings);
 
   state.settings = {
     ...state.settings,
     ...(sync.settings || {}),
   };
+  state.kimiChatUrl = normalizeKimiChatUrl(session.activeKimiChatUrl || "");
 
   if (session.panelStatus) {
     setStatus(session.panelStatus.message);
@@ -110,6 +113,10 @@ function handleRuntimeMessage(message) {
     }
   }
 
+  if (message?.type === "PAGE_PILOT_KIMI_LOCATION") {
+    rememberKimiChatUrl(message.href || "");
+  }
+
   if (message?.type === "PAGE_PILOT_PAYLOAD_READY") {
     debug("payload ready", {
       mode: message.payload?.mode,
@@ -126,6 +133,7 @@ function handleRuntimeMessage(message) {
   }
 
   if (message?.type === "PAGE_PILOT_DEEPSEEK_SEND_RESULT" || message?.type === "DEEPSEEK_SEND_RESULT") {
+    rememberKimiChatUrl(message.href || message.chatUrl || "");
     if (message.ok) {
       const successMessage = "已发送，接下来由 Kimi 处理。";
       elements.kimiStatus.textContent = successMessage;
@@ -139,7 +147,12 @@ function handleRuntimeMessage(message) {
   }
 
   if (message?.type === "PAGE_PILOT_DEEPSEEK_READY" || message?.type === "DEEPSEEK_READY") {
-    debug("deepseek ready", { requestId: message.requestId });
+    rememberKimiChatUrl(message.href || message.chatUrl || "");
+    debug("deepseek ready", {
+      requestId: message.requestId,
+      href: message.href || message.chatUrl || "",
+      activeKimiChatUrl: state.kimiChatUrl,
+    });
     state.deepseekReady = true;
     flushPendingPrompt();
   }
@@ -287,15 +300,39 @@ function enterKimiState(message = "正在准备 Kimi 输入框...") {
 }
 
 function preloadKimiFrame() {
-  if (state.kimiFrameRequested && elements.deepseekFrame.src === KIMI_URL) return;
-  if (elements.deepseekFrame.src === KIMI_URL) {
+  const targetUrl = state.kimiChatUrl || KIMI_URL;
+  if (state.kimiFrameRequested && elements.deepseekFrame.src === targetUrl) return;
+  if (elements.deepseekFrame.src === targetUrl) {
     state.kimiFrameRequested = true;
     return;
   }
 
   state.kimiFrameRequested = true;
-  debug("preloadKimiFrame");
-  elements.deepseekFrame.src = KIMI_URL;
+  debug("preloadKimiFrame", {
+    targetUrl,
+    hasChatUrl: Boolean(state.kimiChatUrl),
+  });
+  elements.deepseekFrame.src = targetUrl;
+}
+
+async function rememberKimiChatUrl(value) {
+  const chatUrl = normalizeKimiChatUrl(value);
+  if (!chatUrl || chatUrl === state.kimiChatUrl) return;
+
+  state.kimiChatUrl = chatUrl;
+  await chrome.storage.session.set({ [STORAGE_KEYS.kimiChatUrl]: chatUrl });
+  debug("rememberKimiChatUrl", { chatUrl });
+}
+
+function normalizeKimiChatUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    if (!/^(www\.)?kimi\.com$/.test(url.hostname)) return "";
+    if (!url.pathname.startsWith("/chat/")) return "";
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return "";
+  }
 }
 
 function syncPanelMode() {
@@ -426,8 +463,9 @@ async function resetSession() {
   state.deepseekReady = false;
   state.pendingAutoSend = false;
   state.kimiFrameRequested = false;
+  state.kimiChatUrl = "";
   state.panelMode = "idle";
-  await chrome.storage.session.remove(STORAGE_KEYS.payload);
+  await chrome.storage.session.remove([STORAGE_KEYS.payload, STORAGE_KEYS.kimiChatUrl]);
   elements.deepseekFrame.src = "about:blank";
   syncPanelMode();
   setStatus("Kimi 会话已重置。");

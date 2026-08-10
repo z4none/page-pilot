@@ -30,6 +30,7 @@
         type: "PAGE_PILOT_DEEPSEEK_SEND_RESULT",
         ...result,
         requestId: message.requestId,
+        href: location.href,
       }).catch(() => {});
     });
   });
@@ -48,6 +49,7 @@
     return true;
   });
 
+  watchKimiLocation();
   announceReady();
 
   function findChatInput() {
@@ -602,12 +604,44 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  function watchKimiLocation() {
+    let lastHref = "";
+    const report = () => {
+      if (location.href === lastHref) return;
+      lastHref = location.href;
+      chrome.runtime.sendMessage({
+        source: SOURCE,
+        type: "PAGE_PILOT_KIMI_LOCATION",
+        href: location.href,
+      }).catch(() => {});
+      debug("location reported", { href: location.href });
+    };
+
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+    history.pushState = function pushState(...args) {
+      const result = originalPushState.apply(this, args);
+      setTimeout(report, 0);
+      return result;
+    };
+    history.replaceState = function replaceState(...args) {
+      const result = originalReplaceState.apply(this, args);
+      setTimeout(report, 0);
+      return result;
+    };
+
+    window.addEventListener("popstate", report);
+    setInterval(report, 2000);
+    report();
+  }
+
   function announceReady() {
     if (readyNotified) return;
     readyNotified = true;
     chrome.runtime.sendMessage({
       source: SOURCE,
       type: "PAGE_PILOT_DEEPSEEK_READY",
+      href: location.href,
     }).catch(() => {});
     debug("ready announced");
   }
