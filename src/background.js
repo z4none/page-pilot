@@ -6,6 +6,7 @@ const STORAGE_KEYS = {
 };
 
 const DEFAULT_SETTINGS = {
+  provider: "kimi",
   skipConfirmation: true,
   maxPromptLength: 12000,
   summaryPrompt: "",

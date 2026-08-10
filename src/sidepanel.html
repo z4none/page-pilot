@@ -24,7 +24,7 @@
           <div class="spinner" aria-hidden="true"></div>
           <div class="loading-copy">
             <strong id="loading-title">正在提取页面内容...</strong>
-            <p id="loading-detail">Kimi 会在后台准备。</p>
+            <p id="loading-detail">AI 网页会在后台准备。</p>
           </div>
         </div>
       </section>
@@ -38,7 +38,7 @@
         <section class="block">
           <div class="block-title">附件内容</div>
           <div id="attachment-meta" class="attachment-meta">尚未生成附件</div>
-          <pre id="attachment-preview" class="preview preview--compact">页面正文会作为附件发送给 Kimi。</pre>
+          <pre id="attachment-preview" class="preview preview--compact">页面正文会作为附件发送给 AI 网页。</pre>
         </section>
 
         <section class="block">
@@ -52,7 +52,7 @@
       </section>
 
       <section id="kimi-panel" class="panel-section kimi-panel hidden">
-        <iframe id="deepseek-frame" title="Kimi" src="https://www.kimi.com/" frameborder="0"></iframe>
+        <iframe id="deepseek-frame" title="AI 网页" src="about:blank" frameborder="0"></iframe>
       </section>
 
       <div id="settings-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -65,9 +65,20 @@
           <label class="setting-row setting-row--compact">
             <span>
               <strong>跳过确认步骤</strong>
-              <small>打开后，右键总结会直接发送到 Kimi。</small>
+              <small>打开后，右键总结会直接发送到所选 AI 网页。</small>
             </span>
             <input id="modal-skip-confirmation" type="checkbox">
+          </label>
+
+          <label class="setting-column setting-column--compact">
+            <span>
+              <strong>AI 网页</strong>
+              <small>Kimi 为稳定主线，DeepSeek 作为实验选项。</small>
+            </span>
+            <select id="modal-provider">
+              <option value="kimi">Kimi</option>
+              <option value="deepseek">DeepSeek</option>
+            </select>
           </label>
 
           <label class="setting-column setting-column--compact">
@@ -91,7 +102,7 @@
           <footer class="modal-actions">
             <div class="modal-actions__secondary">
               <button id="modal-reset-prompt" class="secondary-button">恢复默认提示词</button>
-              <button id="modal-reset-session" class="secondary-button">重置 Kimi 会话</button>
+              <button id="modal-reset-session" class="secondary-button">重置当前会话</button>
             </div>
             <div class="modal-actions__primary">
               <button id="settings-cancel" class="secondary-button">取消</button>

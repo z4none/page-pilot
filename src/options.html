@@ -13,9 +13,20 @@
       <label class="setting-row">
         <span>
           <strong>跳过确认步骤</strong>
-          <small>打开后，右键总结会直接发送到 Kimi。</small>
+          <small>打开后，右键总结会直接发送到所选 AI 网页。</small>
         </span>
         <input id="skip-confirmation" type="checkbox">
+      </label>
+
+      <label class="setting-column">
+        <span>
+          <strong>AI 网页</strong>
+          <small>Kimi 为稳定主线，DeepSeek 作为实验选项。</small>
+        </span>
+        <select id="provider">
+          <option value="kimi">Kimi</option>
+          <option value="deepseek">DeepSeek</option>
+        </select>
       </label>
 
       <label class="setting-column">
@@ -36,7 +47,7 @@
 
       <div class="actions">
         <button id="reset-prompt" class="secondary-button">恢复默认提示词</button>
-        <button id="reset-session" class="secondary-button">重置 Kimi 会话</button>
+        <button id="reset-session" class="secondary-button">重置当前会话</button>
         <button id="save" class="primary-button">保存设置</button>
       </div>
 

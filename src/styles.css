@@ -25,7 +25,8 @@ body {
 
 button,
 textarea,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -320,7 +321,8 @@ input {
 }
 
 .setting-column input,
-.setting-column textarea {
+.setting-column textarea,
+.setting-column select {
   max-width: 220px;
   padding: 8px;
   border: 1px solid var(--line);

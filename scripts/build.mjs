@@ -44,6 +44,7 @@ await Promise.all([
 
 await Promise.all([
   copyFile("src/manifest.json", `${outdir}/manifest.json`),
+  copyFile("src/rules.json", `${outdir}/rules.json`),
   copyFile("src/sidepanel.html", `${outdir}/sidepanel.html`),
   copyFile("src/options.html", `${outdir}/options.html`),
   copyFile("src/styles.css", `${outdir}/styles.css`),

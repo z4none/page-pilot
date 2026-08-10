@@ -1,4 +1,5 @@
 const DEFAULT_SETTINGS = {
+  provider: "kimi",
   skipConfirmation: true,
   maxPromptLength: 12000,
   summaryPrompt: "",
@@ -17,6 +18,7 @@ const DEFAULT_SUMMARY_PROMPTS = {
 };
 
 const elements = {
+  provider: document.querySelector("#provider"),
   skipConfirmation: document.querySelector("#skip-confirmation"),
   maxPromptLength: document.querySelector("#max-prompt-length"),
   summaryPrompt: document.querySelector("#summary-prompt"),
@@ -38,6 +40,7 @@ async function init() {
   };
 
   elements.skipConfirmation.checked = current.skipConfirmation;
+  elements.provider.value = normalizeProviderId(current.provider);
   elements.maxPromptLength.value = String(current.maxPromptLength);
   elements.summaryPrompt.value = resolveSummaryPrompt(current);
   summaryPromptCustomizedDraft = Boolean(current.summaryPromptCustomized && String(current.summaryPrompt || "").trim());
@@ -53,6 +56,7 @@ async function init() {
 async function saveSettings() {
   const summaryPrompt = String(elements.summaryPrompt.value || "").trim() || getLocalizedDefaultSummaryPrompt();
   const settings = {
+    provider: normalizeProviderId(elements.provider.value),
     skipConfirmation: elements.skipConfirmation.checked,
     maxPromptLength: Number(elements.maxPromptLength.value) || DEFAULT_SETTINGS.maxPromptLength,
     summaryPrompt,
@@ -64,7 +68,9 @@ async function saveSettings() {
 }
 
 async function resetSession() {
-  await chrome.storage.session.remove("activeKimiChatUrl");
+  const provider = normalizeProviderId(elements.provider.value);
+  const key = provider === "deepseek" ? "activeDeepSeekChatUrl" : "activeKimiChatUrl";
+  await chrome.storage.session.remove(key);
   elements.status.textContent = "会话状态已重置。";
 }
 
@@ -91,4 +97,8 @@ function getLocalizedDefaultSummaryPrompt() {
 
 function getCurrentLanguage() {
   return String(chrome.i18n?.getUILanguage?.() || navigator.language || "").toLowerCase();
+}
+
+function normalizeProviderId(value) {
+  return value === "deepseek" ? "deepseek" : "kimi";
 }

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Page Pilot",
   "version": "0.1.0",
-  "description": "Extract a page summary prompt and send it to Kimi in the browser side panel.",
+  "description": "Extract a page summary prompt and send it to an AI web chat in the browser side panel.",
   "action": {
     "default_title": "Page Pilot"
   },
@@ -12,30 +12,42 @@
   "permissions": [
     "activeTab",
     "contextMenus",
+    "declarativeNetRequest",
     "tabs",
     "sidePanel",
     "scripting",
     "storage"
   ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "deepseek_frame_headers",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
   "host_permissions": [
     "<all_urls>",
     "https://www.kimi.com/*",
     "https://kimi.com/*",
-    "https://kimi.moonshot.cn/*"
+    "https://kimi.moonshot.cn/*",
+    "https://chat.deepseek.com/*"
   ],
   "side_panel": {
     "default_path": "sidepanel.html"
   },
   "options_page": "options.html",
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.kimi.com https://kimi.com https://kimi.moonshot.cn;"
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.kimi.com https://kimi.com https://kimi.moonshot.cn https://chat.deepseek.com;"
   },
   "content_scripts": [
     {
       "matches": [
         "https://www.kimi.com/*",
         "https://kimi.com/*",
-        "https://kimi.moonshot.cn/*"
+        "https://kimi.moonshot.cn/*",
+        "https://chat.deepseek.com/*"
       ],
       "js": ["deepseek-content.js"],
       "all_frames": true,

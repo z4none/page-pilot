@@ -69,6 +69,8 @@
       'button[aria-label*="send" i]',
       'button[aria-label*="发送" i]',
       ".send-button-container",
+      '[role="button"].ds-button--primary.ds-button--circle',
+      '[role="button"].ds-button--primary.ds-button--icon-relative-m',
       '[role="button"][aria-label*="send" i]',
       '[role="button"][aria-label*="发送" i]',
     ];
@@ -83,6 +85,22 @@
       const text = `${button.textContent || ""} ${button.getAttribute("aria-label") || ""}`;
       return /send|发送|提交/i.test(text) && isClickable(button);
     });
+  }
+
+  function describeSendButtonCandidates() {
+    return {
+      href: location.href,
+      candidates: deepQueryAll(["button", "[role='button']"])
+        .filter((element) => isVisibleEditable(element))
+        .slice(0, 12)
+        .map((element) => ({
+          tag: element.tagName,
+          className: String(element.className || ""),
+          ariaLabel: element.getAttribute("aria-label") || "",
+          text: String(element.textContent || "").trim().slice(0, 80),
+          clickable: isClickable(element),
+        })),
+    };
   }
 
   function findFileInput() {
@@ -121,6 +139,7 @@
     if (element.disabled) return false;
     if (element.getAttribute("aria-disabled") === "true") return false;
     if (element.classList?.contains("disabled")) return false;
+    if (element.className && String(element.className).includes("--disabled")) return false;
     return isVisibleEditable(element);
   }
 
@@ -181,7 +200,7 @@
     return results;
   }
 
-  async function waitForElement(finder, timeoutMs) {
+  async function waitForElement(finder, timeoutMs, describeTimeout) {
     const startedAt = Date.now();
     return new Promise((resolve, reject) => {
       const tick = () => {
@@ -191,7 +210,10 @@
           return;
         }
         if (Date.now() - startedAt > timeoutMs) {
-          reject(new Error("Kimi 页面未找到可用输入框或发送按钮"));
+          if (describeTimeout) {
+            debug("waitForElement timeout detail", describeTimeout());
+          }
+          reject(new Error("AI 网页未找到可用输入框或发送按钮"));
           return;
         }
         setTimeout(tick, 250);
@@ -241,12 +263,12 @@
         repeatedPromptCount: countOccurrences(readInputValue(input), message.prompt),
       });
       if (!filled) {
-        throw new Error("Kimi 输入框未实际显示待发送内容");
+        throw new Error("AI 网页输入框未实际显示待发送内容");
       }
 
       if (message.autoSend) {
         await sleep(1000);
-        const sendButton = await waitForElement(findSendButton, 15000);
+        const sendButton = await waitForElement(findSendButton, 15000, describeSendButtonCandidates);
         debug("send button found", {
           tag: sendButton.tagName,
           className: sendButton.className,
@@ -255,7 +277,7 @@
         });
         const submitted = await trySubmit(input, sendButton, message.prompt, beforeValue);
         if (!submitted) {
-          throw new Error("Kimi 未确认提交，输入框内容仍在");
+          throw new Error("AI 网页未确认提交，输入框内容仍在");
         }
       }
 
@@ -376,7 +398,7 @@
         });
         return;
       }
-      throw new Error("Kimi 未找到文件上传入口");
+      throw new Error("AI 网页未找到文件上传入口");
     }
 
     const dataTransfer = new DataTransfer();
@@ -407,7 +429,7 @@
       elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
     });
     if (!visible) {
-      throw new Error("Kimi 未显示已上传附件");
+      throw new Error("AI 网页未显示已上传附件");
     }
     debug("attachAttachment complete", {
       method: "fileInput",
