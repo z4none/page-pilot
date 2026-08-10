@@ -53,14 +53,32 @@
   announceReady();
 
   function findChatInput() {
-    const candidates = deepQueryAll([
+    const selectors = isGeminiPage()
+      ? [
+        ".ql-editor.textarea.new-input-ui",
+        ".ql-editor[contenteditable='true']",
+        "[role='textbox'].ql-editor",
+        "rich-textarea [contenteditable='true']",
+        "[data-placeholder][contenteditable='true']",
+      ]
+      : [
       ".chat-input-editor",
+      "rich-textarea textarea",
+      "rich-textarea [contenteditable='true']",
+      "[data-placeholder][contenteditable='true']",
       'div[role="textbox"][contenteditable="true"]',
       '[contenteditable="true"]',
       "textarea",
-    ]);
+      ];
+    const candidates = deepQueryAll(selectors);
 
-    return candidates.find((element) => isVisibleEditable(element)) || null;
+    return candidates.find((element) => isUsableChatInput(element)) || null;
+  }
+
+  function isUsableChatInput(element) {
+    if (!isVisibleEditable(element)) return false;
+    if (isGeminiPage() && element.matches?.("textarea.gds-body-l")) return false;
+    return true;
   }
 
   function findSendButton() {
@@ -71,13 +89,19 @@
       ".send-button-container",
       '[role="button"].ds-button--primary.ds-button--circle',
       '[role="button"].ds-button--primary.ds-button--icon-relative-m',
+      'button[aria-label*="send" i]',
+      'button[aria-label*="发送" i]',
+      'button[data-test-id*="send" i]',
+      'button mat-icon[data-mat-icon-name*="send" i]',
+      '[role="button"] mat-icon[data-mat-icon-name*="send" i]',
       '[role="button"][aria-label*="send" i]',
       '[role="button"][aria-label*="发送" i]',
     ];
 
     for (const selector of candidates) {
       const element = deepQueryOne(selector);
-      if (isClickable(element)) return element;
+      const clickable = closestClickable(element);
+      if (isClickable(clickable)) return clickable;
     }
 
     const buttons = deepQueryAll(["button", "[role='button']"]);
@@ -116,22 +140,57 @@
       'button[title*="上传" i]',
       'button[aria-label*="附件" i]',
       'button[aria-label*="文件" i]',
+      'button[aria-label*="file" i]',
+      'button[aria-label*="files" i]',
+      'button[aria-label*="attach" i]',
+      'button[aria-label*="add" i]',
+      'button[aria-label*="image" i]',
+      'button[aria-label*="图片" i]',
+      'button mat-icon[data-mat-icon-name*="attach" i]',
+      'button mat-icon[data-mat-icon-name*="add" i]',
+      'button mat-icon[data-mat-icon-name*="image" i]',
+      'button mat-icon[data-mat-icon-name*="upload" i]',
       '[role="button"][aria-label*="upload" i]',
       '[role="button"][aria-label*="上传" i]',
       '[role="button"][aria-label*="附件" i]',
       '[role="button"][aria-label*="文件" i]',
+      '[role="button"][aria-label*="file" i]',
+      '[role="button"][aria-label*="attach" i]',
+      '[role="button"] mat-icon[data-mat-icon-name*="attach" i]',
+      '[role="button"] mat-icon[data-mat-icon-name*="add" i]',
+      '[role="button"] mat-icon[data-mat-icon-name*="image" i]',
+      '[role="button"] mat-icon[data-mat-icon-name*="upload" i]',
     ];
 
     for (const selector of selectors) {
       const element = deepQueryOne(selector);
-      if (isClickable(element)) return element;
+      const clickable = closestClickable(element);
+      if (isClickable(clickable)) return clickable;
     }
 
     const buttons = deepQueryAll(["button", "[role='button']", "label"]);
     return buttons.find((button) => {
       const text = `${button.textContent || ""} ${button.getAttribute("aria-label") || ""} ${button.getAttribute("title") || ""}`;
-      return /upload|上传|附件|文件|attach|\+|add file|choose file/i.test(text) && isClickable(button);
+      return /upload|上传|附件|文件|attach|\+|add file|choose file|add image|image|photo|drive/i.test(text) && isClickable(button);
     }) || null;
+  }
+
+  function describeUploadCandidates() {
+    return {
+      href: location.href,
+      fileInputCount: deepQueryAll(['input[type="file"]']).length,
+      candidates: deepQueryAll(["button", "[role='button']", "label"])
+        .filter((element) => isVisibleEditable(element))
+        .slice(0, 16)
+        .map((element) => ({
+          tag: element.tagName,
+          className: String(element.className || ""),
+          ariaLabel: element.getAttribute("aria-label") || "",
+          title: element.getAttribute("title") || "",
+          text: String(element.textContent || "").trim().slice(0, 100),
+          clickable: isClickable(element),
+        })),
+    };
   }
 
   function isClickable(element) {
@@ -141,6 +200,12 @@
     if (element.classList?.contains("disabled")) return false;
     if (element.className && String(element.className).includes("--disabled")) return false;
     return isVisibleEditable(element);
+  }
+
+  function closestClickable(element) {
+    if (!element) return null;
+    if (element.matches?.("button, [role='button']")) return element;
+    return element.closest?.("button, [role='button']") || element;
   }
 
   function isVisibleEditable(element) {
@@ -230,10 +295,6 @@
     if (message.requestId) handledRequests.add(message.requestId);
 
     try {
-      if (message.attachment?.content) {
-        await attachAttachment(message.attachment);
-      }
-
       const input = await waitForElement(findChatInput, 30000);
       debug("input found", {
         tag: input.tagName,
@@ -242,6 +303,20 @@
         contentEditable: input.getAttribute("contenteditable"),
         textLength: readInputValue(input).length,
       });
+      let prompt = message.prompt;
+      if (message.attachment?.content) {
+        const attached = await attachAttachment(message.attachment, input);
+        if (!attached && isGeminiPage()) {
+          prompt = buildInlineContentPrompt(message.prompt, message.attachment);
+          debug("attachment fallback to inline prompt", {
+            provider: "gemini",
+            promptLength: message.prompt?.length || 0,
+            inlinePromptLength: prompt.length,
+            attachmentName: message.attachment?.name || "",
+            attachmentContentLength: message.attachment?.content?.length || 0,
+          });
+        }
+      }
       const beforeValue = readInputValue(input);
       debug("fill path selected", {
         tag: input.tagName,
@@ -249,18 +324,18 @@
         isContentEditable: input.isContentEditable,
         beforeLength: beforeValue.length,
       });
-      fillInput(input, message.prompt);
+      fillInput(input, prompt);
       debug("input filled", {
-        promptLength: message.prompt?.length || 0,
+        promptLength: prompt?.length || 0,
         afterLength: readInputValue(input).length,
-        repeatedPromptCount: countOccurrences(readInputValue(input), message.prompt),
+        repeatedPromptCount: countOccurrences(readInputValue(input), prompt),
       });
-      const filled = await waitForFilledInput(input, message.prompt, 1500);
+      const filled = await waitForFilledInput(input, prompt, 1500);
       debug("filled input verified", {
         filled,
         currentLength: readInputValue(input).length,
         currentPreview: readInputValue(input).slice(0, 120),
-        repeatedPromptCount: countOccurrences(readInputValue(input), message.prompt),
+        repeatedPromptCount: countOccurrences(readInputValue(input), prompt),
       });
       if (!filled) {
         throw new Error("AI 网页输入框未实际显示待发送内容");
@@ -275,7 +350,7 @@
           text: sendButton.textContent,
           clickable: isClickable(sendButton),
         });
-        const submitted = await trySubmit(input, sendButton, message.prompt, beforeValue);
+        const submitted = await trySubmit(input, sendButton, prompt, beforeValue);
         if (!submitted) {
           throw new Error("AI 网页未确认提交，输入框内容仍在");
         }
@@ -291,7 +366,7 @@
     }
   }
 
-  async function attachAttachment(attachment) {
+  async function attachAttachment(attachment, preferredTarget = null) {
     const file = new File([attachment.content || ""], attachment.name || "page-summary.md", {
       type: attachment.mimeType || "text/markdown",
     });
@@ -312,7 +387,7 @@
       found: Boolean(fileInput),
       fileInputCount: deepQueryAll(['input[type="file"]']).length,
     });
-    const pasteTarget = findDropTarget() || document.body;
+    const pasteTarget = findDropTarget(preferredTarget) || document.body;
     const pasted = dispatchFilePaste(pasteTarget, file);
     debug("attachment paste attempted", {
       targetTag: pasteTarget.tagName,
@@ -334,11 +409,17 @@
           method: "paste",
           elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
         });
-        return;
+        return true;
+      }
+      if (isGeminiPage()) {
+        debug("attachment paste unverified on Gemini", {
+          fileName: file.name,
+          elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+        });
       }
     }
 
-    const dropTarget = findDropTarget();
+    const dropTarget = findDropTarget(preferredTarget);
     if (!fileInput && dropTarget) {
       const dropped = dispatchFileDrop(dropTarget, file);
       debug("attachment drop attempted", {
@@ -361,7 +442,7 @@
             method: "drop",
             elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
           });
-          return;
+          return true;
         }
       }
     }
@@ -389,14 +470,23 @@
       debug("attachment entry not found", {
         selectors: ["input[type=file]", "upload trigger", "drop target"],
         pasted,
+        uploadCandidates: describeUploadCandidates(),
       });
-      if (pasted) {
+      if (pasted && !isGeminiPage()) {
         debug("attachAttachment complete", {
           method: "pasteUnverified",
           reason: "file paste dispatched but no visible attachment indicator or upload input was found",
           elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
         });
-        return;
+        return true;
+      }
+      if (isGeminiPage()) {
+        debug("attachAttachment complete", {
+          method: "failed",
+          reason: "Gemini did not expose a verifiable attachment target",
+          elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+        });
+        return false;
       }
       throw new Error("AI 网页未找到文件上传入口");
     }
@@ -435,6 +525,7 @@
       method: "fileInput",
       elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
     });
+    return true;
   }
 
   async function waitForAttachmentIndicator(fileName, timeoutMs) {
@@ -478,12 +569,16 @@
 
   function findDropTarget() {
     const targets = [
+      findChatInput(),
       document.body,
       document.documentElement,
-      findChatInput(),
     ].filter(Boolean);
 
     return targets.find((element) => isVisibleEditable(element) || element === document.body || element === document.documentElement) || null;
+  }
+
+  function isGeminiPage() {
+    return location.hostname === "gemini.google.com";
   }
 
   function dispatchFileDrop(target, file) {
@@ -633,6 +728,15 @@
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function buildInlineContentPrompt(prompt, attachment) {
+    return [
+      prompt,
+      "",
+      "页面内容：",
+      attachment?.content || "",
+    ].join("\n").trim();
   }
 
   function watchKimiLocation() {

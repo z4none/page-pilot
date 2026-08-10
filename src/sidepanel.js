@@ -14,6 +14,12 @@ const PROVIDERS = {
     homeUrl: "https://chat.deepseek.com/",
     chatStorageKey: "activeDeepSeekChatUrl",
   },
+  gemini: {
+    id: "gemini",
+    label: "Gemini",
+    homeUrl: "https://gemini.google.com/app",
+    chatStorageKey: "activeGeminiChatUrl",
+  },
 };
 const STORAGE_KEYS = {
   payload: "lastPromptPayload",
@@ -21,6 +27,7 @@ const STORAGE_KEYS = {
   settings: "settings",
   kimiChatUrl: "activeKimiChatUrl",
   deepseekChatUrl: "activeDeepSeekChatUrl",
+  geminiChatUrl: "activeGeminiChatUrl",
 };
 
 const DEFAULT_SUMMARY_PROMPTS = {
@@ -58,6 +65,7 @@ const state = {
   providerChatUrls: {
     kimi: "",
     deepseek: "",
+    gemini: "",
   },
 };
 
@@ -100,6 +108,7 @@ async function init() {
     STORAGE_KEYS.status,
     STORAGE_KEYS.kimiChatUrl,
     STORAGE_KEYS.deepseekChatUrl,
+    STORAGE_KEYS.geminiChatUrl,
   ]);
   const sync = await chrome.storage.sync.get(STORAGE_KEYS.settings);
 
@@ -110,6 +119,7 @@ async function init() {
   state.settings.provider = normalizeProviderId(state.settings.provider);
   state.providerChatUrls.kimi = normalizeProviderChatUrl("kimi", session.activeKimiChatUrl || "");
   state.providerChatUrls.deepseek = normalizeProviderChatUrl("deepseek", session.activeDeepSeekChatUrl || "");
+  state.providerChatUrls.gemini = normalizeProviderChatUrl("gemini", session.activeGeminiChatUrl || "");
 
   if (session.panelStatus) {
     setStatus(session.panelStatus.message);
@@ -488,6 +498,12 @@ function normalizeAnyProviderChatUrl(value) {
         chatUrl: normalizeProviderChatUrl("deepseek", value),
       };
     }
+    if (url.hostname === "gemini.google.com") {
+      return {
+        providerId: "gemini",
+        chatUrl: normalizeProviderChatUrl("gemini", value),
+      };
+    }
   } catch {
   }
   return { providerId: "", chatUrl: "" };
@@ -504,6 +520,11 @@ function normalizeProviderChatUrl(providerId, value) {
     if (providerId === "deepseek") {
       if (url.hostname !== "chat.deepseek.com") return "";
       if (!url.pathname.startsWith("/a/chat/s/")) return "";
+      return `${url.origin}${url.pathname}`;
+    }
+    if (providerId === "gemini") {
+      if (url.hostname !== "gemini.google.com") return "";
+      if (!url.pathname.startsWith("/app/")) return "";
       return `${url.origin}${url.pathname}`;
     }
   } catch {
@@ -525,6 +546,8 @@ function syncPanelMode() {
 function sendCurrentPrompt() {
   const prompt = state.pendingPrompt;
   const attachment = getCurrentAttachment();
+  const provider = getCurrentProvider();
+  const messagePrompt = prompt;
   const messageAttachment = attachment
     ? {
         name: attachment.name,
@@ -536,8 +559,10 @@ function sendCurrentPrompt() {
   if (!prompt || !state.sendPending) return;
 
   debug("sendCurrentPrompt", {
-    provider: getCurrentProvider().id,
-    promptLength: prompt.length,
+    provider: provider.id,
+    promptLength: messagePrompt.length,
+    originalPromptLength: prompt.length,
+    inlineAttachment: false,
     hasFrameWindow: Boolean(elements.deepseekFrame.contentWindow),
     deepseekReady: state.deepseekReady,
     requestId: state.pendingRequestId,
@@ -563,7 +588,7 @@ function sendCurrentPrompt() {
     source: SOURCE,
     type: "SEND_PROMPT",
     requestId: state.pendingRequestId || createRequestId(),
-    prompt,
+    prompt: messagePrompt,
     autoSend: state.pendingAutoSend,
     attachment: messageAttachment,
   }, "*");
@@ -680,7 +705,8 @@ function getCurrentLanguage() {
 }
 
 function normalizeProviderId(value) {
-  return value === "deepseek" ? "deepseek" : "kimi";
+  if (value === "deepseek" || value === "gemini") return value;
+  return "kimi";
 }
 
 function getCurrentProvider() {

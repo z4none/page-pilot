@@ -17,7 +17,7 @@
       ]
     },
     "condition": {
-      "requestDomains": ["chat.deepseek.com"],
+      "requestDomains": ["chat.deepseek.com", "gemini.google.com"],
       "resourceTypes": ["main_frame", "sub_frame"]
     }
   }

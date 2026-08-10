@@ -69,7 +69,12 @@ async function saveSettings() {
 
 async function resetSession() {
   const provider = normalizeProviderId(elements.provider.value);
-  const key = provider === "deepseek" ? "activeDeepSeekChatUrl" : "activeKimiChatUrl";
+  const chatStorageKeys = {
+    kimi: "activeKimiChatUrl",
+    deepseek: "activeDeepSeekChatUrl",
+    gemini: "activeGeminiChatUrl",
+  };
+  const key = chatStorageKeys[provider] || chatStorageKeys.kimi;
   await chrome.storage.session.remove(key);
   elements.status.textContent = "会话状态已重置。";
 }
@@ -100,5 +105,6 @@ function getCurrentLanguage() {
 }
 
 function normalizeProviderId(value) {
-  return value === "deepseek" ? "deepseek" : "kimi";
+  if (value === "deepseek" || value === "gemini") return value;
+  return "kimi";
 }

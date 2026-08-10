@@ -32,14 +32,17 @@
     "https://www.kimi.com/*",
     "https://kimi.com/*",
     "https://kimi.moonshot.cn/*",
-    "https://chat.deepseek.com/*"
+    "https://chat.deepseek.com/*",
+    "https://gemini.google.com/*",
+    "https://accounts.google.com/*",
+    "https://www.google.com/*"
   ],
   "side_panel": {
     "default_path": "sidepanel.html"
   },
   "options_page": "options.html",
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.kimi.com https://kimi.com https://kimi.moonshot.cn https://chat.deepseek.com;"
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.kimi.com https://kimi.com https://kimi.moonshot.cn https://chat.deepseek.com https://gemini.google.com https://accounts.google.com https://www.google.com;"
   },
   "content_scripts": [
     {
@@ -47,7 +50,8 @@
         "https://www.kimi.com/*",
         "https://kimi.com/*",
         "https://kimi.moonshot.cn/*",
-        "https://chat.deepseek.com/*"
+        "https://chat.deepseek.com/*",
+        "https://gemini.google.com/*"
       ],
       "js": ["deepseek-content.js"],
       "all_frames": true,
