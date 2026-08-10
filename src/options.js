@@ -38,6 +38,6 @@ async function saveSettings() {
 }
 
 async function resetSession() {
-  await chrome.storage.session.remove("activeKimiSession");
+  await chrome.storage.session.remove("activeKimiChatUrl");
   elements.status.textContent = "会话状态已重置。";
 }

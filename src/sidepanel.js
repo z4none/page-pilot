@@ -45,6 +45,14 @@ const elements = {
   resetSessionButton: document.querySelector("#reset-session-button"),
   kimiStatus: document.querySelector("#status"),
   deepseekFrame: document.querySelector("#deepseek-frame"),
+  settingsModal: document.querySelector("#settings-modal"),
+  modalSkipConfirmation: document.querySelector("#modal-skip-confirmation"),
+  modalMaxPromptLength: document.querySelector("#modal-max-prompt-length"),
+  modalResetSession: document.querySelector("#modal-reset-session"),
+  settingsSave: document.querySelector("#settings-save"),
+  settingsCancel: document.querySelector("#settings-cancel"),
+  settingsCancelIcon: document.querySelector("#settings-cancel-icon"),
+  settingsModalStatus: document.querySelector("#settings-modal-status"),
 };
 
 init();
@@ -74,9 +82,12 @@ async function init() {
   }
 
   elements.sendButton.addEventListener("click", handleReviewSendClick);
-  elements.settingsButton.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "PAGE_PILOT_OPEN_OPTIONS" });
-  });
+  elements.settingsButton.addEventListener("click", openSettingsModal);
+  elements.settingsSave.addEventListener("click", saveSettingsFromModal);
+  elements.settingsCancel.addEventListener("click", closeSettingsModal);
+  elements.settingsCancelIcon.addEventListener("click", closeSettingsModal);
+  elements.settingsModal.addEventListener("click", handleSettingsOverlayClick);
+  elements.modalResetSession.addEventListener("click", resetKimiChatSession);
   elements.resetSessionButton.addEventListener("click", resetSession);
   elements.deepseekFrame.addEventListener("load", () => {
     debug("iframe load", { src: elements.deepseekFrame.src });
@@ -188,6 +199,63 @@ function renderAttachment(attachment) {
 
 function setStatus(message) {
   elements.status.textContent = message;
+}
+
+function openSettingsModal() {
+  elements.modalSkipConfirmation.checked = Boolean(state.settings.skipConfirmation);
+  elements.modalMaxPromptLength.value = String(state.settings.maxPromptLength || 12000);
+  elements.settingsModalStatus.textContent = "";
+  elements.settingsModal.classList.remove("hidden");
+  elements.modalSkipConfirmation.focus();
+  debug("openSettingsModal", {
+    skipConfirmation: state.settings.skipConfirmation,
+    maxPromptLength: state.settings.maxPromptLength,
+  });
+}
+
+function closeSettingsModal() {
+  elements.settingsModal.classList.add("hidden");
+  elements.settingsModalStatus.textContent = "";
+  debug("closeSettingsModal");
+}
+
+function handleSettingsOverlayClick(event) {
+  if (event.target === elements.settingsModal) {
+    closeSettingsModal();
+  }
+}
+
+async function saveSettingsFromModal() {
+  const settings = {
+    skipConfirmation: elements.modalSkipConfirmation.checked,
+    maxPromptLength: Number(elements.modalMaxPromptLength.value) || state.settings.maxPromptLength || 12000,
+  };
+
+  state.settings = {
+    ...state.settings,
+    ...settings,
+  };
+
+  await chrome.storage.sync.set({ [STORAGE_KEYS.settings]: state.settings });
+  elements.settingsModalStatus.textContent = "设置已保存。";
+  setStatus("设置已保存。");
+  debug("saveSettingsFromModal", state.settings);
+  setTimeout(() => {
+    if (!elements.settingsModal.classList.contains("hidden")) {
+      closeSettingsModal();
+    }
+  }, 450);
+}
+
+async function resetKimiChatSession() {
+  state.kimiChatUrl = "";
+  state.kimiFrameRequested = false;
+  state.deepseekReady = false;
+  await chrome.storage.session.remove(STORAGE_KEYS.kimiChatUrl);
+  elements.deepseekFrame.src = "about:blank";
+  elements.settingsModalStatus.textContent = "Kimi 会话已重置。";
+  setStatus("Kimi 会话已重置。");
+  debug("resetKimiChatSession");
 }
 
 async function sendToKimi(options = {}) {

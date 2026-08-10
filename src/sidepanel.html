@@ -54,6 +54,41 @@
       <section id="kimi-panel" class="panel-section kimi-panel hidden">
         <iframe id="deepseek-frame" title="Kimi" src="https://www.kimi.com/" frameborder="0"></iframe>
       </section>
+
+      <div id="settings-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <section class="settings-modal">
+          <header class="modal-header">
+            <h2 id="settings-title">设置</h2>
+            <button id="settings-cancel-icon" class="icon-button" title="关闭设置" aria-label="关闭设置">×</button>
+          </header>
+
+          <label class="setting-row setting-row--compact">
+            <span>
+              <strong>跳过确认步骤</strong>
+              <small>打开后，右键总结会直接发送到 Kimi。</small>
+            </span>
+            <input id="modal-skip-confirmation" type="checkbox">
+          </label>
+
+          <label class="setting-column setting-column--compact">
+            <span>
+              <strong>最大 Prompt 长度</strong>
+              <small>超过后会自动截断，默认 12000 字符。</small>
+            </span>
+            <input id="modal-max-prompt-length" type="number" min="1000" max="50000" step="1000">
+          </label>
+
+          <p id="settings-modal-status" class="options-status"></p>
+
+          <footer class="modal-actions">
+            <button id="modal-reset-session" class="secondary-button">重置 Kimi 会话</button>
+            <div class="modal-actions__primary">
+              <button id="settings-cancel" class="secondary-button">取消</button>
+              <button id="settings-save" class="primary-button">保存</button>
+            </div>
+          </footer>
+        </section>
+      </div>
     </main>
     <script src="sidepanel.js"></script>
   </body>
