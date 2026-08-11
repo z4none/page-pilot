@@ -64,7 +64,7 @@ test("attachment failure prevents prompt-only submission", async () => {
         return true;
       },
     }),
-    /附件未就绪/,
+    /attachment is not ready/,
   );
 
   assert.deepEqual(events, []);
@@ -121,6 +121,6 @@ test("submission cannot report success while the attachment remains in the compo
         attachmentConsumed: false,
       }),
     }),
-    /附件仍留在输入区/,
+    /attachment remains in the input/,
   );
 });

@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 const MENU_ID = "page-pilot-summarize-page";
 const STORAGE_KEYS = {
   payload: "lastPromptPayload",
@@ -12,22 +14,11 @@ const DEFAULT_SETTINGS = {
   summaryPromptCustomized: false,
 };
 
-const DEFAULT_SUMMARY_PROMPTS = {
-  zh: [
-    "请基于我上传的页面附件，用简洁中文总结。只保留最重要的 3-5 个要点，总字数控制在 300 字以内，并列出 1-3 个值得追问的问题。不要复述原文。",
-    "输出请使用中文。",
-  ].join("\n"),
-  en: [
-    "Please summarize the uploaded page attachment concisely. Keep only the 3-5 most important points, stay under 300 words, and list 1-3 useful follow-up questions. Do not repeat the source text.",
-    "Respond in English.",
-  ].join("\n"),
-};
-
 chrome.runtime.onInstalled.addListener(async () => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: MENU_ID,
-      title: "总结页面",
+      title: t("menuSummarize"),
       contexts: ["page"],
     });
   });
@@ -48,7 +39,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== MENU_ID || !tab?.id || !tab.windowId) return;
 
   await chrome.sidePanel.open({ windowId: tab.windowId });
-  await setStatus("extracting", "正在提炼页面正文...");
+  await setStatus("extracting", t("statusExtracting"));
 
   try {
     await chrome.scripting.executeScript({
@@ -90,7 +81,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handleExtractionResult(result, tab) {
   if (!result?.ok) {
-    const payload = await buildFallbackPayload(tab, result?.error || "正文提炼失败");
+    const payload = await buildFallbackPayload(tab, result?.error || t("noArticle"));
     await publishPayload(payload);
     return;
   }
@@ -109,7 +100,7 @@ async function publishPayload(payload) {
     [STORAGE_KEYS.payload]: payload,
     [STORAGE_KEYS.status]: {
       state: "ready",
-      message: payload.mode === "markdown" ? "正文已提炼，正在发送到 AI 网页。" : "正文提炼失败，已切换为 URL 方案。",
+      message: payload.mode === "markdown" ? t("statusExtracted") : t("statusFallback"),
     },
   });
 
@@ -131,11 +122,7 @@ async function setStatus(state, message) {
 async function buildFallbackPayload(tab, reason) {
   const title = tab?.title || "Untitled page";
   const url = tab?.url || "";
-  const prompt = [
-    "请总结上面链接中的页面内容，提炼关键要点，并指出值得继续追问的问题。",
-    `页面标题：${title}`,
-    `页面 URL：${url}`,
-  ].join("\n");
+  const prompt = t("urlSummaryPrompt", [title, url]);
 
   return {
     mode: "url",
@@ -183,10 +170,7 @@ function resolveSummaryPrompt(settings) {
 }
 
 function getLocalizedDefaultSummaryPrompt() {
-  const language = chrome.i18n?.getUILanguage?.() || navigator.language || "";
-  return String(language).toLowerCase().startsWith("zh")
-    ? DEFAULT_SUMMARY_PROMPTS.zh
-    : DEFAULT_SUMMARY_PROMPTS.en;
+  return t("summaryPrompt");
 }
 
 function buildAttachmentContent(result) {
@@ -194,8 +178,8 @@ function buildAttachmentContent(result) {
   const url = result.url || "";
   const markdown = result.markdown || "";
   return [
-    `页面标题：${title}`,
-    `页面 URL：${url}`,
+    t("pageTitle", title),
+    t("pageUrl", url),
     "",
     markdown,
   ].join("\n").trim();
@@ -203,7 +187,7 @@ function buildAttachmentContent(result) {
 
 function limitPrompt(prompt, maxLength) {
   if (!maxLength || prompt.length <= maxLength) return prompt;
-  const suffix = "\n\n[内容过长，已自动截断。]";
+  const suffix = `\n\n${t("contentTruncated")}`;
   return prompt.slice(0, Math.max(0, maxLength - suffix.length)).trimEnd() + suffix;
 }
 

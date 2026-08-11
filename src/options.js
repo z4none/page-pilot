@@ -1,3 +1,5 @@
+import { applyI18n, t } from "./i18n.js";
+
 const DEFAULT_SETTINGS = {
   provider: "kimi",
   skipConfirmation: true,
@@ -33,6 +35,7 @@ let summaryPromptCustomizedDraft = false;
 init();
 
 async function init() {
+  applyI18n();
   const { settings } = await chrome.storage.sync.get("settings");
   const current = {
     ...DEFAULT_SETTINGS,
@@ -64,7 +67,7 @@ async function saveSettings() {
   };
 
   await chrome.storage.sync.set({ settings });
-  elements.status.textContent = "设置已保存。";
+  elements.status.textContent = t("settingsSaved");
 }
 
 async function resetSession() {
@@ -76,13 +79,13 @@ async function resetSession() {
   };
   const key = chatStorageKeys[provider] || chatStorageKeys.kimi;
   await chrome.storage.session.remove(key);
-  elements.status.textContent = "会话状态已重置。";
+  elements.status.textContent = t("sessionReset", provider);
 }
 
 function resetPromptToLocalizedDefault() {
   elements.summaryPrompt.value = getLocalizedDefaultSummaryPrompt();
   summaryPromptCustomizedDraft = false;
-  elements.status.textContent = "已恢复默认提示词，保存后生效。";
+  elements.status.textContent = t("promptRestored");
 }
 
 function resolveSummaryPrompt(settings) {
@@ -95,9 +98,7 @@ function resolveSummaryPrompt(settings) {
 }
 
 function getLocalizedDefaultSummaryPrompt() {
-  return getCurrentLanguage().startsWith("zh")
-    ? DEFAULT_SUMMARY_PROMPTS.zh
-    : DEFAULT_SUMMARY_PROMPTS.en;
+  return t("summaryPrompt");
 }
 
 function getCurrentLanguage() {

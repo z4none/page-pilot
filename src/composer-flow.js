@@ -13,7 +13,7 @@ export async function runComposerFlow({
   if (message.attachment?.content) {
     attachmentResult = await attachAttachment(message.attachment, input);
     if (!attachmentResult?.ready) {
-      throw new Error("AI 网页附件未就绪，已停止发送");
+      throw new Error(t("attachmentNotReady"));
     }
   }
 
@@ -21,14 +21,14 @@ export async function runComposerFlow({
   fillPrompt(input, message.prompt);
   const filled = await verifyPrompt(input, message.prompt);
   if (!filled) {
-    throw new Error("AI 网页输入框未实际显示待发送内容");
+    throw new Error(t("inputNotFilled"));
   }
 
   if (message.autoSend) {
     if (attachmentResult && verifyAttachmentForSubmit) {
       const stillReady = await verifyAttachmentForSubmit(attachmentResult, input);
       if (!stillReady) {
-        throw new Error("AI 网页附件在提交前仍未稳定，已停止发送");
+        throw new Error(t("attachmentUnstable"));
       }
     }
 
@@ -42,10 +42,10 @@ export async function runComposerFlow({
       ? Boolean(submitResult?.submitted)
       : Boolean(submitResult);
     if (!submitted) {
-      throw new Error("AI 网页未确认提交，输入框内容仍在");
+      throw new Error(t("submitNotConfirmed"));
     }
     if (attachmentResult && submitResult?.attachmentConsumed === false) {
-      throw new Error("提示词已提交，但附件仍留在输入区");
+      throw new Error(t("attachmentNotConsumed"));
     }
   }
 
@@ -82,3 +82,4 @@ function readComposerValue(input) {
   }
   return input.innerText || input.textContent || "";
 }
+import { t } from "./i18n.js";

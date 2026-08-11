@@ -1,5 +1,6 @@
 import { Readability } from "@mozilla/readability";
 import TurndownService from "turndown";
+import { t } from "./i18n.js";
 
 const DEBUG_PREFIX = "[PAGE-PILOT]";
 const DEBUG_STARTED_AT = performance.now();
@@ -22,7 +23,7 @@ const DEBUG_STARTED_AT = performance.now();
     });
 
     if (markdown.length < 80) {
-      throw new Error("提炼出的正文过短");
+      throw new Error(t("extractionTooShort"));
     }
 
     await chrome.runtime.sendMessage({
@@ -71,7 +72,7 @@ function extractGenericArticle() {
   const article = reader.parse();
 
   if (!article?.content || !article.textContent?.trim()) {
-    throw new Error("没有找到可提炼的正文区域");
+    throw new Error(t("noArticle"));
   }
 
   const turndown = createTurndown();

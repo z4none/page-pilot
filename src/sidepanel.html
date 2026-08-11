@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,12 +11,12 @@
       <header class="header">
         <div>
           <h1>Page Pilot</h1>
-          <p id="status">等待页面内容</p>
+          <p id="status" data-i18n="statusWaiting">Waiting for page content</p>
         </div>
         <div class="toolbar-actions">
-          <button id="content-button" class="icon-button" title="查看提取内容" aria-label="查看提取内容" aria-controls="content-modal" disabled>▤</button>
-          <button id="settings-button" class="icon-button" title="打开设置" aria-label="打开设置">⚙</button>
-          <button id="reset-session-button" class="icon-button" title="重置会话" aria-label="重置会话">↻</button>
+          <button id="content-button" class="icon-button" data-i18n-title="viewContent" aria-controls="content-modal" disabled>▤</button>
+          <button id="settings-button" class="icon-button" data-i18n-title="openSettings">⚙</button>
+          <button id="reset-session-button" class="icon-button" data-i18n-title="resetSession">↻</button>
         </div>
       </header>
 
@@ -28,10 +28,10 @@
         <section class="content-modal">
           <header class="modal-header">
             <div>
-              <h2 id="content-title">提取内容</h2>
+              <h2 id="content-title" data-i18n="extractedContent">Extracted content</h2>
               <p id="content-meta" class="content-meta"></p>
             </div>
-            <button id="content-cancel-icon" class="icon-button" title="关闭内容" aria-label="关闭内容">×</button>
+            <button id="content-cancel-icon" class="icon-button" data-i18n-title="close">×</button>
           </header>
           <pre id="content-viewer" class="content-viewer"></pre>
         </section>
@@ -40,14 +40,14 @@
       <div id="settings-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <section class="settings-modal">
           <header class="modal-header">
-            <h2 id="settings-title">设置</h2>
-            <button id="settings-cancel-icon" class="icon-button" title="关闭设置" aria-label="关闭设置">×</button>
+            <h2 id="settings-title" data-i18n="settings">Settings</h2>
+            <button id="settings-cancel-icon" class="icon-button" data-i18n-title="close">×</button>
           </header>
 
           <label class="setting-column setting-column--compact">
             <span>
-              <strong>AI 网页</strong>
-              <small>Kimi 为稳定主线，DeepSeek 和 Gemini 作为实验选项。</small>
+              <strong data-i18n="provider">AI provider</strong>
+              <small data-i18n="providerHelp">Kimi is the primary path; DeepSeek and Gemini are experimental.</small>
             </span>
             <select id="modal-provider">
               <option value="kimi">Kimi</option>
@@ -58,16 +58,16 @@
 
           <label class="setting-column setting-column--compact">
             <span>
-              <strong>最大 Prompt 长度</strong>
-              <small>超过后会自动截断，默认 12000 字符。</small>
+              <strong data-i18n="maxPrompt">Maximum prompt length</strong>
+              <small data-i18n="maxPromptHelp">Longer prompts are truncated automatically. Default: 12000 characters.</small>
             </span>
             <input id="modal-max-prompt-length" type="number" min="1000" max="50000" step="1000">
           </label>
 
           <label class="setting-column setting-column--compact">
             <span>
-              <strong>默认提示词</strong>
-              <small>页面正文会作为附件上传，这里只写总结任务要求。</small>
+              <strong data-i18n="defaultPrompt">Default prompt</strong>
+              <small data-i18n="defaultPromptHelp">Page content is attached as a file; write only the summary task here.</small>
             </span>
             <textarea id="modal-summary-prompt" class="settings-prompt-editor" spellcheck="false"></textarea>
           </label>
@@ -76,12 +76,12 @@
 
           <footer class="modal-actions">
             <div class="modal-actions__secondary">
-              <button id="modal-reset-prompt" class="secondary-button">恢复默认提示词</button>
-              <button id="modal-reset-session" class="secondary-button">重置当前会话</button>
+              <button id="modal-reset-prompt" class="secondary-button" data-i18n="restoreDefault">Restore default</button>
+              <button id="modal-reset-session" class="secondary-button" data-i18n="resetCurrentSession">Reset current session</button>
             </div>
             <div class="modal-actions__primary">
-              <button id="settings-cancel" class="secondary-button">取消</button>
-              <button id="settings-save" class="primary-button">保存</button>
+              <button id="settings-cancel" class="secondary-button" data-i18n="cancel">Cancel</button>
+              <button id="settings-save" class="primary-button" data-i18n="save">Save</button>
             </div>
           </footer>
         </section>

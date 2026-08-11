@@ -1,27 +1,27 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Page Pilot 设置</title>
+    <title>Page Pilot Settings</title>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
     <main class="options">
-      <h1>Page Pilot 设置</h1>
+      <h1>Page Pilot Settings</h1>
 
       <label class="setting-row">
         <span>
-          <strong>跳过确认步骤</strong>
-          <small>打开后，右键总结会直接发送到所选 AI 网页。</small>
+          <strong>Skip confirmation</strong>
+          <small>When enabled, page summaries are sent directly to the selected AI page.</small>
         </span>
         <input id="skip-confirmation" type="checkbox">
       </label>
 
       <label class="setting-column">
         <span>
-          <strong>AI 网页</strong>
-          <small>Kimi 为稳定主线，DeepSeek 和 Gemini 作为实验选项。</small>
+          <strong>AI provider</strong>
+          <small>Kimi is the primary path; DeepSeek and Gemini are experimental.</small>
         </span>
         <select id="provider">
           <option value="kimi">Kimi</option>
@@ -32,24 +32,24 @@
 
       <label class="setting-column">
         <span>
-          <strong>最大 Prompt 长度</strong>
-          <small>超过后会自动截断，默认 12000 字符。</small>
+          <strong>Maximum prompt length</strong>
+          <small>Longer prompts are truncated automatically. Default: 12000 characters.</small>
         </span>
         <input id="max-prompt-length" type="number" min="1000" max="50000" step="1000">
       </label>
 
       <label class="setting-column">
         <span>
-          <strong>默认提示词</strong>
-          <small>页面正文会作为附件上传，这里只写总结任务要求。</small>
+          <strong>Default prompt</strong>
+          <small>Page content is attached as a file; write only the summary task here.</small>
         </span>
         <textarea id="summary-prompt" class="settings-prompt-editor" spellcheck="false"></textarea>
       </label>
 
       <div class="actions">
-        <button id="reset-prompt" class="secondary-button">恢复默认提示词</button>
-        <button id="reset-session" class="secondary-button">重置当前会话</button>
-        <button id="save" class="primary-button">保存设置</button>
+        <button id="reset-prompt" class="secondary-button">Restore default</button>
+        <button id="reset-session" class="secondary-button">Reset current session</button>
+        <button id="save" class="primary-button">Save settings</button>
       </div>
 
       <p id="status" class="options-status"></p>

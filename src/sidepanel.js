@@ -1,4 +1,5 @@
 import { resolveRequestProviderId } from "./provider-request.js";
+import { applyI18n, t } from "./i18n.js";
 
 const SOURCE = "page-pilot";
 const DEBUG_PREFIX = "[PAGE-PILOT]";
@@ -30,17 +31,6 @@ const STORAGE_KEYS = {
   kimiChatUrl: "activeKimiChatUrl",
   deepseekChatUrl: "activeDeepSeekChatUrl",
   geminiChatUrl: "activeGeminiChatUrl",
-};
-
-const DEFAULT_SUMMARY_PROMPTS = {
-  zh: [
-    "请基于我上传的页面附件，用简洁中文总结。只保留最重要的 3-5 个要点，总字数控制在 300 字以内，并列出 1-3 个值得追问的问题。不要复述原文。",
-    "输出请使用中文。",
-  ].join("\n"),
-  en: [
-    "Please summarize the uploaded page attachment concisely. Keep only the 3-5 most important points, stay under 300 words, and list 1-3 useful follow-up questions. Do not repeat the source text.",
-    "Respond in English.",
-  ].join("\n"),
 };
 
 const state = {
@@ -99,6 +89,7 @@ const elements = {
 init();
 
 async function init() {
+  applyI18n();
   chrome.runtime.onMessage.addListener(handleRuntimeMessage);
 
   const session = await chrome.storage.session.get([
@@ -163,8 +154,8 @@ function openContentModal() {
   const attachment = payload.attachment;
   elements.contentMeta.textContent = attachment
     ? `${attachment.name} · ${(attachment.size / 1024).toFixed(1)} KB`
-    : payload.url || "没有生成正文附件";
-  elements.contentViewer.textContent = attachment?.content || payload.markdown || payload.url || "暂无提取内容";
+    : payload.url || t("noAttachment");
+  elements.contentViewer.textContent = attachment?.content || payload.markdown || payload.url || t("noContent");
   elements.contentModal.classList.remove("hidden");
   elements.contentCancelIcon.focus();
   debug("openContentModal", {
@@ -223,11 +214,11 @@ function handleRuntimeMessage(message) {
     const provider = getRequestProvider();
     rememberProviderChatUrl(message.href || message.chatUrl || "");
     if (message.ok) {
-      const successMessage = `已发送，接下来由 ${provider.label} 处理。`;
+      const successMessage = t("sent", provider.label);
       elements.kimiStatus.textContent = successMessage;
       setStatus(successMessage);
     } else {
-      const errorMessage = `发送失败：${message.error || `未找到 ${provider.label} 输入框`}`;
+      const errorMessage = t("sendFailed", message.error || `No ${provider.label} input found`);
       elements.kimiStatus.textContent = errorMessage;
       setStatus(errorMessage);
       enterKimiState(errorMessage);
@@ -331,8 +322,8 @@ async function saveSettingsFromModal() {
     elements.deepseekFrame.src = "about:blank";
     preloadKimiFrame();
   }
-  elements.settingsModalStatus.textContent = "设置已保存。";
-  setStatus("设置已保存。");
+  elements.settingsModalStatus.textContent = t("settingsSaved");
+  setStatus(t("settingsSaved"));
   debug("saveSettingsFromModal", state.settings);
   setTimeout(() => {
     if (!elements.settingsModal.classList.contains("hidden")) {
@@ -344,7 +335,7 @@ async function saveSettingsFromModal() {
 function resetPromptToLocalizedDefault() {
   elements.modalSummaryPrompt.value = getLocalizedDefaultSummaryPrompt();
   state.settingsPromptCustomizedDraft = false;
-  elements.settingsModalStatus.textContent = "已恢复默认提示词，保存后生效。";
+  elements.settingsModalStatus.textContent = t("promptRestored");
   debug("resetPromptToLocalizedDefault", {
     language: getCurrentLanguage(),
   });
@@ -357,8 +348,8 @@ async function resetKimiChatSession() {
   state.deepseekReady = false;
   await chrome.storage.session.remove(provider.chatStorageKey);
   elements.deepseekFrame.src = "about:blank";
-  elements.settingsModalStatus.textContent = `${provider.label} 会话已重置。`;
-  setStatus(`${provider.label} 会话已重置。`);
+  elements.settingsModalStatus.textContent = t("sessionReset", provider.label);
+  setStatus(t("sessionReset", provider.label));
   debug("resetProviderChatSession", { provider: provider.id });
 }
 
@@ -370,7 +361,7 @@ async function sendToProvider(options = {}) {
   const prompt = String(promptOverride ?? state.payload?.prompt ?? "").trim();
   const attachment = getCurrentAttachment();
   if (!prompt) {
-    setStatus("没有可发送的 Prompt。");
+    setStatus(t("noPrompt"));
     debug("sendToProvider aborted", {
       hasOverride: Boolean(promptOverride),
       overrideLength: overridePrompt.length,
@@ -412,7 +403,7 @@ async function sendToProvider(options = {}) {
     },
   });
 
-  enterKimiState(autoSend ? `正在上传附件并发送到 ${requestProvider.label}...` : `正在填入 ${requestProvider.label} 输入框...`);
+  enterKimiState(autoSend ? t("uploading", requestProvider.label) : t("filling", requestProvider.label));
   requestFrameReadiness("send-start", true);
   flushPendingPrompt();
 }
@@ -427,7 +418,7 @@ function maybeAutoSend(payload) {
     promptLength: payload?.prompt?.length || 0,
     markdownLength: payload?.markdown?.length || 0,
   });
-  enterKimiState(`正在准备 ${getCurrentProvider().label} 输入框...`);
+  enterKimiState(t("preparing", getCurrentProvider().label));
   sendToProvider({
     autoSend: true,
     promptOverride: payload?.prompt || "",
@@ -436,11 +427,11 @@ function maybeAutoSend(payload) {
 }
 
 function enterIdleState() {
-  setStatus("等待页面内容");
+  setStatus(t("statusWaiting"));
   preloadKimiFrame();
 }
 
-function enterKimiState(message = `正在准备 ${getCurrentProvider().label} 输入框...`) {
+function enterKimiState(message = t("preparing", getCurrentProvider().label)) {
   elements.kimiStatus.textContent = message;
   setStatus(message);
   preloadKimiFrame();
@@ -587,13 +578,13 @@ function sendCurrentPrompt() {
   });
 
   if (!state.deepseekReady) {
-    elements.kimiStatus.textContent = `正在等待 ${getCurrentProvider().label} 加载完成...`;
+    elements.kimiStatus.textContent = t("waitingReady", getCurrentProvider().label);
     return;
   }
 
   elements.kimiStatus.textContent = state.pendingAutoSend
-    ? `正在上传附件并发送到 ${getCurrentProvider().label}...`
-    : `正在填入 ${getCurrentProvider().label} 输入框...`;
+    ? t("uploading", getCurrentProvider().label)
+    : t("filling", getCurrentProvider().label);
   state.sendPending = false;
   state.deepseekReady = false;
   state.activeRequestProviderId = state.pendingProviderId;
@@ -612,8 +603,8 @@ function sendCurrentPrompt() {
   state.pendingProviderId = null;
   state.pendingStartedAt = 0;
   elements.kimiStatus.textContent = state.pendingAutoSend
-    ? "已触发发送。"
-    : "已填入，等待你手动发送。";
+    ? t("sent", getCurrentProvider().label)
+    : t("filling", getCurrentProvider().label);
   debug("postMessage sent", {
     autoSend: state.pendingAutoSend,
     attachmentName: messageAttachment?.name || "",
@@ -647,7 +638,7 @@ function flushPendingPrompt() {
   if (!state.deepseekReady) {
     const pendingAgeMs = state.pendingStartedAt ? Date.now() - state.pendingStartedAt : 0;
     if (pendingAgeMs > 10000) {
-      const errorMessage = `发送失败：${getCurrentProvider().label} 尚未就绪，请重试。`;
+      const errorMessage = t("sendFailed", t("notReady", getCurrentProvider().label));
       elements.kimiStatus.textContent = errorMessage;
       setStatus(errorMessage);
       state.sendPending = false;
@@ -687,7 +678,7 @@ async function resetSession() {
   state.providerChatUrls[getCurrentProvider().id] = "";
   await chrome.storage.session.remove([STORAGE_KEYS.payload, getCurrentProvider().chatStorageKey]);
   elements.deepseekFrame.src = "about:blank";
-  setStatus(`${getCurrentProvider().label} 会话已重置。`);
+  setStatus(t("sessionReset", getCurrentProvider().label));
   preloadKimiFrame();
   debug("resetSession", { provider: getCurrentProvider().id });
 }
@@ -712,9 +703,7 @@ function resolveSummaryPrompt(settings) {
 }
 
 function getLocalizedDefaultSummaryPrompt() {
-  return getCurrentLanguage().startsWith("zh")
-    ? DEFAULT_SUMMARY_PROMPTS.zh
-    : DEFAULT_SUMMARY_PROMPTS.en;
+  return t("summaryPrompt");
 }
 
 function getCurrentLanguage() {

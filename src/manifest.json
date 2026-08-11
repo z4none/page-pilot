@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Page Pilot",
+  "default_locale": "en",
+  "name": "__MSG_extensionName__",
   "version": "0.1.0",
-  "description": "Extract a page summary prompt and send it to an AI web chat in the browser side panel.",
+  "description": "__MSG_extensionDescription__",
   "action": {
     "default_title": "Page Pilot"
   },

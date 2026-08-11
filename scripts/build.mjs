@@ -1,4 +1,4 @@
-import { mkdir, copyFile } from "node:fs/promises";
+import { cp, mkdir, copyFile } from "node:fs/promises";
 import esbuild from "esbuild";
 
 const outdir = "dist";
@@ -48,4 +48,5 @@ await Promise.all([
   copyFile("src/sidepanel.html", `${outdir}/sidepanel.html`),
   copyFile("src/options.html", `${outdir}/options.html`),
   copyFile("src/styles.css", `${outdir}/styles.css`),
+  cp("src/_locales", `${outdir}/_locales`, { recursive: true }),
 ]);

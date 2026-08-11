@@ -1,38 +1,45 @@
 # Page Pilot
 
-Chrome extension prototype for summarizing the current page through Kimi web chat.
+[简体中文](README.zh-CN.md)
 
-## What It Does
+Page Pilot is an open-source Chrome extension that summarizes the current page in an AI web chat embedded in the browser side panel.
 
-- Adds a right-click menu item: `总结页面`.
-- Extracts the current page's main content with Readability.
-- Converts extracted HTML to Markdown with Turndown.
-- Shows extracted content and the final prompt in the Chrome side panel.
-- After confirmation, opens Kimi in the side panel, uploads the page body as a text attachment, fills the prompt, and optionally sends it.
-- Falls back to a URL-based prompt when content extraction fails.
+> **No API key required.** It reuses the web session you have already signed in to on Kimi, DeepSeek, or Gemini. No model API account, key, or API billing setup is needed.
 
-## Setup
+## Features
+
+- Summarize the current page from the `Summarize page` context-menu item.
+- Extract main content, attach the title, URL, and body as a text file, then send a concise summary request.
+- Use Kimi, DeepSeek, or Gemini in the side panel and reuse each provider's current chat session.
+- Check the exact extracted attachment from the side-panel toolbar.
+- Use a short localized default prompt: 3-5 key points, one to three follow-up questions, and no source-text repetition.
+- Localize the extension from Chrome's UI language: English (default), Simplified Chinese, Japanese, and Korean. Other locales fall back to English.
+- Fall back to visible text from the semantic main container if Web Components cause HTML-to-Markdown conversion to lose content.
+
+## Use
+
+1. Select an AI provider in the side-panel settings and sign in on its page.
+2. Open a page and wait for its content to load.
+3. Right-click the page and select `Summarize page`.
+4. Page Pilot prepares the attachment and prompt, then sends them to the selected provider.
+
+## Development
 
 ```bash
 npm install
 npm run build
+npm run check
 ```
 
-## Load In Chrome
+Load the `dist` directory from `chrome://extensions` with Developer mode enabled. Run `npm run build` and reload the unpacked extension after source changes.
 
-1. Open `chrome://extensions`.
-2. Turn on Developer mode.
-3. Click `Load unpacked`.
-4. Select the `dist` directory.
-5. Open a normal webpage.
-6. Right-click the page and choose `总结页面`.
+## Security and Privacy
 
-## First Validation Targets
+This project does not use a developer-operated model proxy or backend. However, no API key does **not** mean page content stays entirely local: when you request a summary, the page title, URL, and extracted body are sent to the AI provider you selected and are subject to that provider's account and privacy policies.
 
-- Whether `https://www.kimi.com/` loads inside the side panel iframe.
-- Whether the Kimi login session is available there.
-- Whether the current input and send-button selectors work.
-- Whether Kimi accepts programmatic input events from the injected content script.
-- Whether Kimi accepts a file upload injected through the side-panel flow.
-
-If Kimi cannot load in the iframe, the next fallback is opening Kimi in a normal tab and autofilling there.
+- Login happens on the provider's own page; Page Pilot does not ask for account passwords or API keys.
+- Pending page content is held in `chrome.storage.session`; provider selection and custom prompts use Chrome sync storage.
+- Content is read and sent only after you invoke the page context-menu action. Use **View extracted content** before sending when auditing a page.
+- `activeTab`, `scripting`, and `<all_urls>` allow extraction from the page you explicitly summarize. Provider content scripts match only Kimi, DeepSeek, and Gemini domains.
+- To embed DeepSeek and Gemini, the extension uses a `declarativeNetRequest` rule that removes their framing response headers for those domains only. This is security-sensitive; audit the source and use the development build only when you accept this trade-off.
+- Provider web UI changes, sign-in restrictions, content policies, and anti-automation measures can affect compatibility. The extension does not bypass access controls or payment restrictions.
