@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "npm run build"
+    "test": "node --test test/*.test.js",
+    "check": "npm test && npm run build"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",

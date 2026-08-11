@@ -14,46 +14,28 @@
           <p id="status">等待页面内容</p>
         </div>
         <div class="toolbar-actions">
+          <button id="content-button" class="icon-button" title="查看提取内容" aria-label="查看提取内容" aria-controls="content-modal" disabled>▤</button>
           <button id="settings-button" class="icon-button" title="打开设置" aria-label="打开设置">⚙</button>
           <button id="reset-session-button" class="icon-button" title="重置会话" aria-label="重置会话">↻</button>
         </div>
       </header>
 
-      <section id="loading-panel" class="panel-section hidden">
-        <div class="loading-state">
-          <div class="spinner" aria-hidden="true"></div>
-          <div class="loading-copy">
-            <strong id="loading-title">正在提取页面内容...</strong>
-            <p id="loading-detail">AI 网页会在后台准备。</p>
-          </div>
-        </div>
-      </section>
-
-      <section id="review-panel" class="panel-section review-panel hidden">
-        <section class="block">
-          <div class="block-title">提炼结果</div>
-          <pre id="markdown-preview" class="preview">右键页面并选择“总结页面”。</pre>
-        </section>
-
-        <section class="block">
-          <div class="block-title">附件内容</div>
-          <div id="attachment-meta" class="attachment-meta">尚未生成附件</div>
-          <pre id="attachment-preview" class="preview preview--compact">页面正文会作为附件发送给 AI 网页。</pre>
-        </section>
-
-        <section class="block">
-          <label class="block-title" for="prompt-editor">待发送 Prompt</label>
-          <textarea id="prompt-editor" class="prompt-editor" spellcheck="false"></textarea>
-        </section>
-
-        <footer class="actions">
-          <button id="send-button" class="primary-button" disabled>总结</button>
-        </footer>
-      </section>
-
-      <section id="kimi-panel" class="panel-section kimi-panel hidden">
+      <section id="kimi-panel" class="panel-section kimi-panel">
         <iframe id="deepseek-frame" title="AI 网页" src="about:blank" frameborder="0"></iframe>
       </section>
+
+      <div id="content-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="content-title">
+        <section class="content-modal">
+          <header class="modal-header">
+            <div>
+              <h2 id="content-title">提取内容</h2>
+              <p id="content-meta" class="content-meta"></p>
+            </div>
+            <button id="content-cancel-icon" class="icon-button" title="关闭内容" aria-label="关闭内容">×</button>
+          </header>
+          <pre id="content-viewer" class="content-viewer"></pre>
+        </section>
+      </div>
 
       <div id="settings-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <section class="settings-modal">
@@ -61,14 +43,6 @@
             <h2 id="settings-title">设置</h2>
             <button id="settings-cancel-icon" class="icon-button" title="关闭设置" aria-label="关闭设置">×</button>
           </header>
-
-          <label class="setting-row setting-row--compact">
-            <span>
-              <strong>跳过确认步骤</strong>
-              <small>打开后，右键总结会直接发送到所选 AI 网页。</small>
-            </span>
-            <input id="modal-skip-confirmation" type="checkbox">
-          </label>
 
           <label class="setting-column setting-column--compact">
             <span>

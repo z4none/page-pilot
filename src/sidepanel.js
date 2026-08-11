@@ -1,3 +1,5 @@
+import { resolveRequestProviderId } from "./provider-request.js";
+
 const SOURCE = "page-pilot";
 const DEBUG_PREFIX = "[PAGE-PILOT]";
 const DEBUG_STARTED_AT = performance.now();
@@ -32,11 +34,11 @@ const STORAGE_KEYS = {
 
 const DEFAULT_SUMMARY_PROMPTS = {
   zh: [
-    "请基于我上传的页面附件，总结主要内容，提炼关键要点，并指出值得继续追问的问题。",
+    "请基于我上传的页面附件，用简洁中文总结。只保留最重要的 3-5 个要点，总字数控制在 300 字以内，并列出 1-3 个值得追问的问题。不要复述原文。",
     "输出请使用中文。",
   ].join("\n"),
   en: [
-    "Please summarize the page attachment I uploaded, extract the key points, and suggest useful follow-up questions.",
+    "Please summarize the uploaded page attachment concisely. Keep only the 3-5 most important points, stay under 300 words, and list 1-3 useful follow-up questions. Do not repeat the source text.",
     "Respond in English.",
   ].join("\n"),
 };
@@ -45,22 +47,23 @@ const state = {
   payload: null,
   settings: {
     provider: "kimi",
-    skipConfirmation: true,
     maxPromptLength: 12000,
     summaryPrompt: "",
     summaryPromptCustomized: false,
   },
   settingsPromptCustomizedDraft: false,
-  panelMode: "idle",
   pendingPrompt: null,
   pendingAttachment: null,
   pendingRequestId: null,
+  pendingProviderId: null,
+  activeRequestProviderId: null,
   pendingAutoSend: false,
   pendingStartedAt: 0,
   sendPending: false,
   autoSentPayloadKey: null,
   sendScheduled: false,
   deepseekReady: false,
+  lastFrameReadinessProbeAt: 0,
   kimiFrameRequested: false,
   providerChatUrls: {
     kimi: "",
@@ -70,24 +73,19 @@ const state = {
 };
 
 const elements = {
-  loadingPanel: document.querySelector("#loading-panel"),
-  loadingTitle: document.querySelector("#loading-title"),
-  loadingDetail: document.querySelector("#loading-detail"),
-  reviewPanel: document.querySelector("#review-panel"),
   kimiPanel: document.querySelector("#kimi-panel"),
   status: document.querySelector("#status"),
-  markdownPreview: document.querySelector("#markdown-preview"),
-  attachmentMeta: document.querySelector("#attachment-meta"),
-  attachmentPreview: document.querySelector("#attachment-preview"),
-  promptEditor: document.querySelector("#prompt-editor"),
-  sendButton: document.querySelector("#send-button"),
   settingsButton: document.querySelector("#settings-button"),
+  contentButton: document.querySelector("#content-button"),
   resetSessionButton: document.querySelector("#reset-session-button"),
   kimiStatus: document.querySelector("#status"),
   deepseekFrame: document.querySelector("#deepseek-frame"),
+  contentModal: document.querySelector("#content-modal"),
+  contentCancelIcon: document.querySelector("#content-cancel-icon"),
+  contentMeta: document.querySelector("#content-meta"),
+  contentViewer: document.querySelector("#content-viewer"),
   settingsModal: document.querySelector("#settings-modal"),
   modalProvider: document.querySelector("#modal-provider"),
-  modalSkipConfirmation: document.querySelector("#modal-skip-confirmation"),
   modalMaxPromptLength: document.querySelector("#modal-max-prompt-length"),
   modalSummaryPrompt: document.querySelector("#modal-summary-prompt"),
   modalResetPrompt: document.querySelector("#modal-reset-prompt"),
@@ -123,22 +121,22 @@ async function init() {
 
   if (session.panelStatus) {
     setStatus(session.panelStatus.message);
-    if (session.panelStatus.state === "extracting") {
-      enterExtractingState(session.panelStatus.message);
-      preloadKimiFrame();
-    }
+    preloadKimiFrame();
   }
 
   if (session.lastPromptPayload) {
     renderPayload(session.lastPromptPayload);
   }
+  preloadKimiFrame();
 
-  elements.sendButton.addEventListener("click", handleReviewSendClick);
+  elements.contentButton.addEventListener("click", openContentModal);
+  elements.contentCancelIcon.addEventListener("click", closeContentModal);
   elements.settingsButton.addEventListener("click", openSettingsModal);
   elements.settingsSave.addEventListener("click", saveSettingsFromModal);
   elements.settingsCancel.addEventListener("click", closeSettingsModal);
   elements.settingsCancelIcon.addEventListener("click", closeSettingsModal);
   elements.settingsModal.addEventListener("click", handleSettingsOverlayClick);
+  elements.contentModal.addEventListener("click", handleContentOverlayClick);
   elements.modalSummaryPrompt.addEventListener("input", () => {
     state.settingsPromptCustomizedDraft = true;
   });
@@ -148,6 +146,7 @@ async function init() {
   elements.deepseekFrame.addEventListener("load", () => {
     debug("iframe load", { src: elements.deepseekFrame.src });
     if (elements.deepseekFrame.src === "about:blank") return;
+    requestFrameReadiness("iframe-load", true);
     if (state.sendPending && !state.sendScheduled) {
       scheduleSendRetry();
     }
@@ -155,29 +154,44 @@ async function init() {
 
   if (!session.panelStatus?.state && !session.lastPromptPayload) {
     enterIdleState();
-  } else if (session.lastPromptPayload && session.panelStatus?.state !== "extracting") {
-    enterReviewState();
   }
 }
 
-function handleReviewSendClick() {
-  const attachment = getCurrentAttachment();
-  debug("review send clicked", {
-    promptLength: elements.promptEditor.value?.length || 0,
+function openContentModal() {
+  const payload = state.payload;
+  if (!payload) return;
+  const attachment = payload.attachment;
+  elements.contentMeta.textContent = attachment
+    ? `${attachment.name} · ${(attachment.size / 1024).toFixed(1)} KB`
+    : payload.url || "没有生成正文附件";
+  elements.contentViewer.textContent = attachment?.content || payload.markdown || payload.url || "暂无提取内容";
+  elements.contentModal.classList.remove("hidden");
+  elements.contentCancelIcon.focus();
+  debug("openContentModal", {
+    mode: payload.mode,
+    contentLength: elements.contentViewer.textContent.length,
     attachmentName: attachment?.name || "",
-    attachmentSize: attachment?.size || 0,
-    attachmentContentLength: attachment?.content?.length || 0,
   });
-  sendToProvider({ autoSend: true });
+}
+
+function closeContentModal() {
+  elements.contentModal.classList.add("hidden");
+}
+
+function handleContentOverlayClick(event) {
+  if (event.target === elements.contentModal) {
+    closeContentModal();
+  }
 }
 
 function handleRuntimeMessage(message) {
+  if (message?.type === "PAGE_PILOT_EXTRACTION_DEBUG") {
+    debug(`extractor ${message.message || "diagnostic"}`, message.detail || {});
+  }
+
   if (message?.type === "PAGE_PILOT_STATUS") {
     setStatus(message.status.message);
-    if (message.status.state === "extracting") {
-      enterExtractingState(message.status.message);
-      preloadKimiFrame();
-    }
+    preloadKimiFrame();
   }
 
   if (message?.type === "PAGE_PILOT_KIMI_LOCATION") {
@@ -191,35 +205,54 @@ function handleRuntimeMessage(message) {
       markdownLength: message.payload?.markdown?.length || 0,
       attachmentName: message.payload?.attachment?.name || "",
       attachmentSize: message.payload?.attachment?.size || 0,
-      skipConfirmation: state.settings.skipConfirmation,
     });
     renderPayload(message.payload);
-    if (!maybeAutoSend(message.payload)) {
-      enterReviewState();
-    }
+    maybeAutoSend(message.payload);
   }
 
   if (message?.type === "PAGE_PILOT_DEEPSEEK_SEND_RESULT" || message?.type === "DEEPSEEK_SEND_RESULT") {
+    const resultProvider = getProviderIdFromUrl(message.href || message.chatUrl || "");
+    if (state.activeRequestProviderId && resultProvider && resultProvider !== state.activeRequestProviderId) {
+      debug("stale provider result ignored", {
+        activeProvider: state.activeRequestProviderId,
+        resultProvider,
+        href: message.href || message.chatUrl || "",
+      });
+      return;
+    }
+    const provider = getRequestProvider();
     rememberProviderChatUrl(message.href || message.chatUrl || "");
     if (message.ok) {
-      const successMessage = `已发送，接下来由 ${getCurrentProvider().label} 处理。`;
+      const successMessage = `已发送，接下来由 ${provider.label} 处理。`;
       elements.kimiStatus.textContent = successMessage;
       setStatus(successMessage);
     } else {
-      const errorMessage = `发送失败：${message.error || `未找到 ${getCurrentProvider().label} 输入框`}`;
+      const errorMessage = `发送失败：${message.error || `未找到 ${provider.label} 输入框`}`;
       elements.kimiStatus.textContent = errorMessage;
       setStatus(errorMessage);
       enterKimiState(errorMessage);
     }
+    state.activeRequestProviderId = null;
   }
 
   if (message?.type === "PAGE_PILOT_DEEPSEEK_READY" || message?.type === "DEEPSEEK_READY") {
+    const readyProvider = getProviderIdFromUrl(message.href || message.chatUrl || "");
+    if (state.pendingProviderId && readyProvider && readyProvider !== state.pendingProviderId) {
+      debug("stale provider ready ignored", {
+        pendingProvider: state.pendingProviderId,
+        readyProvider,
+        href: message.href || message.chatUrl || "",
+      });
+      return;
+    }
+    const provider = getRequestProvider();
     rememberProviderChatUrl(message.href || message.chatUrl || "");
     debug("deepseek ready", {
       requestId: message.requestId,
+      reason: message.reason || "initial",
       href: message.href || message.chatUrl || "",
-      provider: getCurrentProvider().id,
-      activeChatUrl: getCurrentProviderChatUrl(),
+      provider: provider.id,
+      activeChatUrl: getRequestProviderChatUrl(),
     });
     state.deepseekReady = true;
     flushPendingPrompt();
@@ -236,22 +269,8 @@ function renderPayload(payload) {
     attachmentSize: payload?.attachment?.size || 0,
     truncated: Boolean(payload?.truncated),
   });
-  elements.markdownPreview.textContent = payload.markdown || `将使用 URL 方案：\n${payload.url || ""}`;
   state.pendingAttachment = payload?.attachment || null;
-  renderAttachment(payload?.attachment || null);
-  elements.promptEditor.value = payload.prompt || "";
-  elements.sendButton.disabled = !payload.prompt;
-}
-
-function renderAttachment(attachment) {
-  if (!attachment) {
-    elements.attachmentMeta.textContent = "未生成附件";
-    elements.attachmentPreview.textContent = "当前流程不会附加正文文件。";
-    return;
-  }
-
-  elements.attachmentMeta.textContent = `${attachment.name} · ${(attachment.size / 1024).toFixed(1)} KB · ${attachment.mimeType}`;
-  elements.attachmentPreview.textContent = attachment.content || "";
+  elements.contentButton.disabled = !Boolean(payload?.attachment?.content || payload?.markdown || payload?.url);
 }
 
 function setStatus(message) {
@@ -260,16 +279,14 @@ function setStatus(message) {
 
 function openSettingsModal() {
   elements.modalProvider.value = getCurrentProvider().id;
-  elements.modalSkipConfirmation.checked = Boolean(state.settings.skipConfirmation);
   elements.modalMaxPromptLength.value = String(state.settings.maxPromptLength || 12000);
   elements.modalSummaryPrompt.value = resolveSummaryPrompt(state.settings);
   state.settingsPromptCustomizedDraft = Boolean(state.settings.summaryPromptCustomized && String(state.settings.summaryPrompt || "").trim());
   elements.settingsModalStatus.textContent = "";
   elements.settingsModal.classList.remove("hidden");
-  elements.modalSkipConfirmation.focus();
+  elements.modalProvider.focus();
   debug("openSettingsModal", {
     provider: getCurrentProvider().id,
-    skipConfirmation: state.settings.skipConfirmation,
     maxPromptLength: state.settings.maxPromptLength,
     summaryPromptCustomized: state.settings.summaryPromptCustomized,
   });
@@ -292,7 +309,6 @@ async function saveSettingsFromModal() {
   const previousProvider = getCurrentProvider().id;
   const settings = {
     provider: normalizeProviderId(elements.modalProvider.value),
-    skipConfirmation: elements.modalSkipConfirmation.checked,
     maxPromptLength: Number(elements.modalMaxPromptLength.value) || state.settings.maxPromptLength || 12000,
     summaryPrompt,
     summaryPromptCustomized: state.settingsPromptCustomizedDraft,
@@ -304,7 +320,12 @@ async function saveSettingsFromModal() {
   };
 
   await chrome.storage.sync.set({ [STORAGE_KEYS.settings]: state.settings });
-  if (settings.provider !== previousProvider) {
+  if (settings.provider !== previousProvider && (state.sendPending || state.activeRequestProviderId)) {
+    debug("provider change deferred", {
+      activeProvider: getRequestProvider().id,
+      nextProvider: settings.provider,
+    });
+  } else if (settings.provider !== previousProvider) {
     state.kimiFrameRequested = false;
     state.deepseekReady = false;
     elements.deepseekFrame.src = "about:blank";
@@ -342,18 +363,18 @@ async function resetKimiChatSession() {
 }
 
 async function sendToProvider(options = {}) {
+  const requestProvider = getCurrentProvider();
   const autoSend = Boolean(options.autoSend);
   const promptOverride = options.promptOverride;
-  const editorPrompt = String(elements.promptEditor.value ?? "");
   const overridePrompt = String(promptOverride ?? "");
-  const prompt = String(promptOverride ?? elements.promptEditor.value ?? "").trim();
+  const prompt = String(promptOverride ?? state.payload?.prompt ?? "").trim();
   const attachment = getCurrentAttachment();
   if (!prompt) {
     setStatus("没有可发送的 Prompt。");
     debug("sendToProvider aborted", {
       hasOverride: Boolean(promptOverride),
       overrideLength: overridePrompt.length,
-      editorLength: editorPrompt.length,
+      payloadPromptLength: state.payload?.prompt?.length || 0,
     });
     return;
   }
@@ -364,13 +385,13 @@ async function sendToProvider(options = {}) {
   }
 
   debug("sendToProvider", {
-    provider: getCurrentProvider().id,
+    provider: requestProvider.id,
     autoSend,
     hasOverride: Boolean(promptOverride),
     overrideLength: overridePrompt.length,
-    editorLength: editorPrompt.length,
+    payloadPromptLength: state.payload?.prompt?.length || 0,
     promptLength: prompt.length,
-    source: promptOverride ? "payload" : "editor",
+    source: promptOverride ? "payload" : "storedPayload",
     attachmentName: attachment?.name || "",
     attachmentSize: attachment?.size || 0,
     attachmentContentLength: attachment?.content?.length || 0,
@@ -378,6 +399,7 @@ async function sendToProvider(options = {}) {
   state.pendingPrompt = prompt;
   state.pendingAttachment = attachment;
   state.pendingRequestId = createRequestId();
+  state.pendingProviderId = requestProvider.id;
   state.pendingAutoSend = autoSend;
   state.pendingStartedAt = Date.now();
   state.sendPending = true;
@@ -390,13 +412,12 @@ async function sendToProvider(options = {}) {
     },
   });
 
-  enterKimiState(autoSend ? `正在上传附件并发送到 ${getCurrentProvider().label}...` : `正在填入 ${getCurrentProvider().label} 输入框...`);
+  enterKimiState(autoSend ? `正在上传附件并发送到 ${requestProvider.label}...` : `正在填入 ${requestProvider.label} 输入框...`);
+  requestFrameReadiness("send-start", true);
   flushPendingPrompt();
 }
 
 function maybeAutoSend(payload) {
-  if (!state.settings.skipConfirmation) return false;
-
   const key = getPayloadKey(payload);
   if (state.autoSentPayloadKey === key) return true;
 
@@ -415,36 +436,11 @@ function maybeAutoSend(payload) {
 }
 
 function enterIdleState() {
-  state.panelMode = "idle";
-  syncPanelMode();
   setStatus("等待页面内容");
-}
-
-function enterExtractingState(message = "正在提取页面内容...") {
-  state.panelMode = "extracting";
-  syncPanelMode();
-  elements.loadingTitle.textContent = message || "正在提取页面内容...";
-  elements.loadingDetail.textContent = `${getCurrentProvider().label} 会在后台准备。`;
-  setStatus(message || "正在提取页面内容...");
   preloadKimiFrame();
-  debug("enterExtractingState", { message });
-}
-
-function enterReviewState() {
-  state.panelMode = "review";
-  syncPanelMode();
-  const modeText = state.payload?.mode === "markdown" ? "正文已提炼，等待确认。" : "已切换为 URL 方案，等待确认。";
-  const truncatedText = state.payload?.truncated ? "内容已截断。" : "";
-  setStatus(truncatedText ? `${modeText} ${truncatedText}` : modeText);
-  debug("enterReviewState", {
-    promptLength: state.payload?.prompt?.length || 0,
-    attachmentName: state.payload?.attachment?.name || "",
-  });
 }
 
 function enterKimiState(message = `正在准备 ${getCurrentProvider().label} 输入框...`) {
-  state.panelMode = "kimi";
-  syncPanelMode();
   elements.kimiStatus.textContent = message;
   setStatus(message);
   preloadKimiFrame();
@@ -452,11 +448,15 @@ function enterKimiState(message = `正在准备 ${getCurrentProvider().label} �
 }
 
 function preloadKimiFrame() {
-  const provider = getCurrentProvider();
-  const targetUrl = getCurrentProviderChatUrl() || provider.homeUrl;
-  if (state.kimiFrameRequested && elements.deepseekFrame.src === targetUrl) return;
+  const provider = getRequestProvider();
+  const targetUrl = getRequestProviderChatUrl() || provider.homeUrl;
+  if (state.kimiFrameRequested && elements.deepseekFrame.src === targetUrl) {
+    requestFrameReadiness("reuse-requested-frame", true);
+    return;
+  }
   if (elements.deepseekFrame.src === targetUrl) {
     state.kimiFrameRequested = true;
+    requestFrameReadiness("reuse-frame", true);
     return;
   }
 
@@ -468,6 +468,29 @@ function preloadKimiFrame() {
   });
   elements.deepseekFrame.title = provider.label;
   elements.deepseekFrame.src = targetUrl;
+}
+
+function requestFrameReadiness(reason, force = false) {
+  if (!state.sendPending || !elements.deepseekFrame.contentWindow) return;
+
+  const now = Date.now();
+  if (!force && now - state.lastFrameReadinessProbeAt < 500) return;
+  state.lastFrameReadinessProbeAt = now;
+
+  const provider = getRequestProvider();
+  const requestId = state.pendingRequestId;
+  elements.deepseekFrame.contentWindow.postMessage({
+    source: SOURCE,
+    type: "PAGE_PILOT_PING",
+    requestId,
+    provider: provider.id,
+  }, "*");
+  debug("frame readiness probe", {
+    reason,
+    provider: provider.id,
+    requestId,
+    frameSrc: elements.deepseekFrame.src,
+  });
 }
 
 async function rememberProviderChatUrl(value) {
@@ -533,20 +556,10 @@ function normalizeProviderChatUrl(providerId, value) {
   return "";
 }
 
-function syncPanelMode() {
-  const loadingVisible = state.panelMode === "extracting";
-  const reviewVisible = state.panelMode === "review";
-  const kimiVisible = state.panelMode === "kimi";
-
-  elements.loadingPanel.classList.toggle("hidden", !loadingVisible);
-  elements.reviewPanel.classList.toggle("hidden", !reviewVisible);
-  elements.kimiPanel.classList.toggle("hidden", !kimiVisible);
-}
-
 function sendCurrentPrompt() {
   const prompt = state.pendingPrompt;
   const attachment = getCurrentAttachment();
-  const provider = getCurrentProvider();
+  const provider = getRequestProvider();
   const messagePrompt = prompt;
   const messageAttachment = attachment
     ? {
@@ -583,6 +596,7 @@ function sendCurrentPrompt() {
     : `正在填入 ${getCurrentProvider().label} 输入框...`;
   state.sendPending = false;
   state.deepseekReady = false;
+  state.activeRequestProviderId = state.pendingProviderId;
 
   elements.deepseekFrame.contentWindow?.postMessage({
     source: SOURCE,
@@ -595,6 +609,7 @@ function sendCurrentPrompt() {
 
   state.pendingPrompt = null;
   state.pendingRequestId = null;
+  state.pendingProviderId = null;
   state.pendingStartedAt = 0;
   elements.kimiStatus.textContent = state.pendingAutoSend
     ? "已触发发送。"
@@ -642,6 +657,7 @@ function flushPendingPrompt() {
       });
       return;
     }
+    requestFrameReadiness("waiting-for-ready");
     scheduleSendRetry();
     return;
   }
@@ -666,12 +682,13 @@ async function resetSession() {
   state.deepseekReady = false;
   state.pendingAutoSend = false;
   state.kimiFrameRequested = false;
+  elements.contentButton.disabled = true;
+  closeContentModal();
   state.providerChatUrls[getCurrentProvider().id] = "";
-  state.panelMode = "idle";
   await chrome.storage.session.remove([STORAGE_KEYS.payload, getCurrentProvider().chatStorageKey]);
   elements.deepseekFrame.src = "about:blank";
-  syncPanelMode();
   setStatus(`${getCurrentProvider().label} 会话已重置。`);
+  preloadKimiFrame();
   debug("resetSession", { provider: getCurrentProvider().id });
 }
 
@@ -713,8 +730,31 @@ function getCurrentProvider() {
   return PROVIDERS[normalizeProviderId(state.settings.provider)] || PROVIDERS.kimi;
 }
 
+function getRequestProvider() {
+  const providerId = resolveRequestProviderId(
+    state.activeRequestProviderId || state.pendingProviderId,
+    state.settings.provider,
+  );
+  return PROVIDERS[normalizeProviderId(providerId)] || PROVIDERS.kimi;
+}
+
 function getCurrentProviderChatUrl() {
   return state.providerChatUrls[getCurrentProvider().id] || "";
+}
+
+function getRequestProviderChatUrl() {
+  return state.providerChatUrls[getRequestProvider().id] || "";
+}
+
+function getProviderIdFromUrl(value) {
+  try {
+    const hostname = new URL(String(value || "")).hostname;
+    if (/^(www\.)?kimi\.com$/.test(hostname)) return "kimi";
+    if (hostname === "chat.deepseek.com") return "deepseek";
+    if (hostname === "gemini.google.com") return "gemini";
+  } catch {
+  }
+  return "";
 }
 
 function debug(message, extra) {

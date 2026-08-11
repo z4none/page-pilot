@@ -1,18 +1,35 @@
+import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
+
 (() => {
   const SOURCE = "page-pilot";
   const DEBUG_PREFIX = "[PAGE-PILOT]";
   const DEBUG_STARTED_AT = performance.now();
   const handledRequests = new Set();
+  const IS_PRIMARY_FRAME = window.parent === window.top;
   let readyNotified = false;
 
   debug("content script loaded", {
     href: location.href,
     top: window.self === window.top,
+    primary: IS_PRIMARY_FRAME,
   });
 
   window.addEventListener("message", (event) => {
     const message = event.data;
     if (!message || message.source !== SOURCE) return;
+
+    if (message.type === "PAGE_PILOT_PING") {
+      if (!IS_PRIMARY_FRAME) return;
+      debug("readiness ping received", {
+        requestId: message.requestId,
+        provider: message.provider || "",
+      });
+      announceReady({
+        requestId: message.requestId,
+        reason: "ping",
+      });
+      return;
+    }
 
     if (message.type !== "SEND_PROMPT") return;
     debug("message received", {
@@ -49,8 +66,12 @@
     return true;
   });
 
-  watchKimiLocation();
-  announceReady();
+  if (IS_PRIMARY_FRAME) {
+    watchKimiLocation();
+    announceReady();
+  } else {
+    debug("secondary frame ignored", { href: location.href });
+  }
 
   function findChatInput() {
     const selectors = isGeminiPage()
@@ -83,6 +104,9 @@
 
   function findSendButton() {
     const candidates = [
+      'gem-icon-button.send-button',
+      'gem-icon-button[aria-label*="send" i]',
+      'gem-icon-button[aria-label*="发送" i]',
       'button[type="submit"]',
       'button[aria-label*="send" i]',
       'button[aria-label*="发送" i]',
@@ -114,7 +138,7 @@
   function describeSendButtonCandidates() {
     return {
       href: location.href,
-      candidates: deepQueryAll(["button", "[role='button']"])
+      candidates: deepQueryAll(["button", "[role='button']", "gem-icon-button"])
         .filter((element) => isVisibleEditable(element))
         .slice(0, 12)
         .map((element) => ({
@@ -122,72 +146,8 @@
           className: String(element.className || ""),
           ariaLabel: element.getAttribute("aria-label") || "",
           text: String(element.textContent || "").trim().slice(0, 80),
-          clickable: isClickable(element),
-        })),
-    };
-  }
-
-  function findFileInput() {
-    const inputs = deepQueryAll(['input[type="file"]']);
-    return inputs.find((input) => !input.disabled) || null;
-  }
-
-  function findUploadTrigger() {
-    const selectors = [
-      'button[aria-label*="upload" i]',
-      'button[aria-label*="上传" i]',
-      'button[title*="upload" i]',
-      'button[title*="上传" i]',
-      'button[aria-label*="附件" i]',
-      'button[aria-label*="文件" i]',
-      'button[aria-label*="file" i]',
-      'button[aria-label*="files" i]',
-      'button[aria-label*="attach" i]',
-      'button[aria-label*="add" i]',
-      'button[aria-label*="image" i]',
-      'button[aria-label*="图片" i]',
-      'button mat-icon[data-mat-icon-name*="attach" i]',
-      'button mat-icon[data-mat-icon-name*="add" i]',
-      'button mat-icon[data-mat-icon-name*="image" i]',
-      'button mat-icon[data-mat-icon-name*="upload" i]',
-      '[role="button"][aria-label*="upload" i]',
-      '[role="button"][aria-label*="上传" i]',
-      '[role="button"][aria-label*="附件" i]',
-      '[role="button"][aria-label*="文件" i]',
-      '[role="button"][aria-label*="file" i]',
-      '[role="button"][aria-label*="attach" i]',
-      '[role="button"] mat-icon[data-mat-icon-name*="attach" i]',
-      '[role="button"] mat-icon[data-mat-icon-name*="add" i]',
-      '[role="button"] mat-icon[data-mat-icon-name*="image" i]',
-      '[role="button"] mat-icon[data-mat-icon-name*="upload" i]',
-    ];
-
-    for (const selector of selectors) {
-      const element = deepQueryOne(selector);
-      const clickable = closestClickable(element);
-      if (isClickable(clickable)) return clickable;
-    }
-
-    const buttons = deepQueryAll(["button", "[role='button']", "label"]);
-    return buttons.find((button) => {
-      const text = `${button.textContent || ""} ${button.getAttribute("aria-label") || ""} ${button.getAttribute("title") || ""}`;
-      return /upload|上传|附件|文件|attach|\+|add file|choose file|add image|image|photo|drive/i.test(text) && isClickable(button);
-    }) || null;
-  }
-
-  function describeUploadCandidates() {
-    return {
-      href: location.href,
-      fileInputCount: deepQueryAll(['input[type="file"]']).length,
-      candidates: deepQueryAll(["button", "[role='button']", "label"])
-        .filter((element) => isVisibleEditable(element))
-        .slice(0, 16)
-        .map((element) => ({
-          tag: element.tagName,
-          className: String(element.className || ""),
-          ariaLabel: element.getAttribute("aria-label") || "",
-          title: element.getAttribute("title") || "",
-          text: String(element.textContent || "").trim().slice(0, 100),
+          ariaDisabled: element.getAttribute("aria-disabled") || "",
+          disabled: Boolean(element.disabled),
           clickable: isClickable(element),
         })),
     };
@@ -295,67 +255,86 @@
     if (message.requestId) handledRequests.add(message.requestId);
 
     try {
-      const input = await waitForElement(findChatInput, 30000);
-      debug("input found", {
-        tag: input.tagName,
-        className: input.className,
-        role: input.getAttribute("role"),
-        contentEditable: input.getAttribute("contenteditable"),
-        textLength: readInputValue(input).length,
-      });
-      let prompt = message.prompt;
-      if (message.attachment?.content) {
-        const attached = await attachAttachment(message.attachment, input);
-        if (!attached && isGeminiPage()) {
-          prompt = buildInlineContentPrompt(message.prompt, message.attachment);
-          debug("attachment fallback to inline prompt", {
-            provider: "gemini",
-            promptLength: message.prompt?.length || 0,
-            inlinePromptLength: prompt.length,
-            attachmentName: message.attachment?.name || "",
-            attachmentContentLength: message.attachment?.content?.length || 0,
+      const providerStrategy = getProviderStrategy();
+      await runComposerFlow({
+        message,
+        waitForInput: async () => {
+          const input = await waitForElement(findChatInput, 30000);
+          debug("input found", {
+            provider: providerStrategy.provider,
+            tag: input.tagName,
+            className: input.className,
+            role: input.getAttribute("role"),
+            contentEditable: input.getAttribute("contenteditable"),
+            textLength: readInputValue(input).length,
           });
-        }
-      }
-      const beforeValue = readInputValue(input);
-      debug("fill path selected", {
-        tag: input.tagName,
-        isTextarea: input.matches("textarea"),
-        isContentEditable: input.isContentEditable,
-        beforeLength: beforeValue.length,
-      });
-      fillInput(input, prompt);
-      debug("input filled", {
-        promptLength: prompt?.length || 0,
-        afterLength: readInputValue(input).length,
-        repeatedPromptCount: countOccurrences(readInputValue(input), prompt),
-      });
-      const filled = await waitForFilledInput(input, prompt, 1500);
-      debug("filled input verified", {
-        filled,
-        currentLength: readInputValue(input).length,
-        currentPreview: readInputValue(input).slice(0, 120),
-        repeatedPromptCount: countOccurrences(readInputValue(input), prompt),
-      });
-      if (!filled) {
-        throw new Error("AI 网页输入框未实际显示待发送内容");
-      }
-
-      if (message.autoSend) {
-        await sleep(1000);
-        const sendButton = await waitForElement(findSendButton, 15000, describeSendButtonCandidates);
+          return input;
+        },
+        attachAttachment: (attachment, input) => attachAttachment(attachment, input, providerStrategy),
+        fillPrompt: (input, prompt) => {
+          debug("fill path selected", {
+            provider: providerStrategy.provider,
+            tag: input.tagName,
+            isTextarea: input.matches("textarea"),
+            isContentEditable: input.isContentEditable,
+            beforeLength: readInputValue(input).length,
+          });
+          fillInput(input, prompt);
+          debug("input filled", {
+            provider: providerStrategy.provider,
+            promptLength: prompt?.length || 0,
+            afterLength: readInputValue(input).length,
+            repeatedPromptCount: countOccurrences(readInputValue(input), prompt),
+          });
+        },
+        verifyPrompt: async (input, prompt) => {
+          const filled = await waitForFilledInput(input, prompt, 1500);
+          debug("filled input verified", {
+            provider: providerStrategy.provider,
+            filled,
+            currentLength: readInputValue(input).length,
+            currentPreview: readInputValue(input).slice(0, 120),
+            repeatedPromptCount: countOccurrences(readInputValue(input), prompt),
+          });
+          return filled;
+        },
+        verifyAttachmentForSubmit: async (attachmentResult) => {
+          if (providerStrategy.attachmentReadiness === "sendButton") {
+            const sendButton = await waitForElement(findSendButton, 15000, describeSendButtonCandidates);
+            debug("attachment gate via send button", {
+              provider: providerStrategy.provider,
+              tag: sendButton.tagName,
+              className: String(sendButton.className || ""),
+              ariaDisabled: sendButton.getAttribute("aria-disabled") || "",
+              disabled: Boolean(sendButton.disabled),
+              clickable: isClickable(sendButton),
+            });
+            return true;
+          }
+          await waitForAttachmentMinimumAge(attachmentResult, providerStrategy);
+          const evidence = await waitForAttachmentReady(
+            attachmentResult.fileName,
+            attachmentResult.baseline,
+            providerStrategy,
+            "preSubmit",
+          );
+          return Boolean(evidence);
+        },
+        submitPrompt: async ({ input, prompt, beforeValue }) => {
+          await sleep(providerStrategy.preSubmitDelayMs);
+          const sendButton = await waitForElement(findSendButton, 15000, describeSendButtonCandidates);
         debug("send button found", {
+          provider: providerStrategy.provider,
           tag: sendButton.tagName,
           className: sendButton.className,
           text: sendButton.textContent,
+          ariaDisabled: sendButton.getAttribute("aria-disabled") || "",
+          disabled: Boolean(sendButton.disabled),
           clickable: isClickable(sendButton),
-        });
-        const submitted = await trySubmit(input, sendButton, prompt, beforeValue);
-        if (!submitted) {
-          throw new Error("AI 网页未确认提交，输入框内容仍在");
-        }
-      }
-
+          });
+          return trySubmit(input, sendButton, prompt, beforeValue, message.attachment, providerStrategy);
+        },
+      });
       return { ok: true };
     } catch (error) {
       debug("handleSendPrompt failed", { error: String(error?.message || error) });
@@ -366,263 +345,311 @@
     }
   }
 
-  async function attachAttachment(attachment, preferredTarget = null) {
+  async function attachAttachment(attachment, preferredTarget = null, strategy = getProviderStrategy()) {
     const file = new File([attachment.content || ""], attachment.name || "page-summary.md", {
       type: attachment.mimeType || "text/markdown",
     });
     const startedAt = performance.now();
-    const fastTimeoutMs = 1500;
-    const inputTimeoutMs = 3000;
+    const target = preferredTarget || findChatInput();
+    const baseline = captureAttachmentSnapshot(file.name);
 
     debug("attachAttachment start", {
+      provider: strategy.provider,
+      method: strategy.attachmentMethod,
+      targetMode: "input",
+      targetTag: target?.tagName || "",
+      targetClass: String(target?.className || ""),
       fileName: file.name,
       fileSize: file.size,
       mimeType: file.type,
-      fastTimeoutMs,
-      inputTimeoutMs,
+      timeoutMs: strategy.attachmentTimeoutMs,
+      settleMs: strategy.attachmentSettleMs,
+    });
+    debug("attachment baseline", {
+      provider: strategy.provider,
+      ...summarizeAttachmentSnapshot(baseline),
     });
 
-    let fileInput = findFileInput();
-    debug("attachment file input search", {
-      found: Boolean(fileInput),
-      fileInputCount: deepQueryAll(['input[type="file"]']).length,
-    });
-    const pasteTarget = findDropTarget(preferredTarget) || document.body;
-    const pasted = dispatchFilePaste(pasteTarget, file);
-    debug("attachment paste attempted", {
-      targetTag: pasteTarget.tagName,
-      targetClass: String(pasteTarget.className || ""),
-      pasted,
+    if (!target) {
+      return { ready: false, method: strategy.attachmentMethod, reason: "missingTarget" };
+    }
+
+    const dispatchResult = dispatchFilePaste(target, file);
+    debug("attachment paste dispatched", {
+      provider: strategy.provider,
+      targetTag: target.tagName,
+      targetClass: String(target.className || ""),
+      ...dispatchResult,
       fileName: file.name,
       fileSize: file.size,
-      timeoutMs: fastTimeoutMs,
     });
-    if (pasted) {
-      const visible = await waitForAttachmentIndicator(file.name, fastTimeoutMs);
-      debug("attachment paste verified", {
-        fileName: file.name,
-        visible,
-        elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
-      });
-      if (visible) {
-        debug("attachAttachment complete", {
-          method: "paste",
-          elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
-        });
-        return true;
-      }
-      if (isGeminiPage()) {
-        debug("attachment paste unverified on Gemini", {
-          fileName: file.name,
-          elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
-        });
-      }
+    if (!dispatchResult.dispatched) {
+      return { ready: false, method: strategy.attachmentMethod, reason: "dispatchFailed" };
     }
 
-    const dropTarget = findDropTarget(preferredTarget);
-    if (!fileInput && dropTarget) {
-      const dropped = dispatchFileDrop(dropTarget, file);
-      debug("attachment drop attempted", {
-        targetTag: dropTarget.tagName,
-        targetClass: String(dropTarget.className || ""),
-        dropped,
-        fileName: file.name,
-        fileSize: file.size,
-        timeoutMs: fastTimeoutMs,
-      });
-      if (dropped) {
-        const visible = await waitForAttachmentIndicator(file.name, fastTimeoutMs);
-        debug("attachment drop verified", {
-          fileName: file.name,
-          visible,
-          elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
-        });
-        if (visible) {
-          debug("attachAttachment complete", {
-            method: "drop",
-            elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
-          });
-          return true;
-        }
-      }
-    }
-
-    if (!fileInput) {
-      const trigger = findUploadTrigger();
-      debug("attachment trigger search", {
-        found: Boolean(trigger),
-        triggerText: trigger?.textContent || "",
-        triggerAria: trigger?.getAttribute("aria-label") || "",
-      });
-      if (trigger) {
-        debug("upload trigger clicked", {
-          tag: trigger.tagName,
-          text: trigger.textContent,
-          ariaLabel: trigger.getAttribute("aria-label"),
-        });
-        clickLikeUser(trigger);
-        await sleep(500);
-        fileInput = findFileInput();
-      }
-    }
-
-    if (!fileInput) {
-      debug("attachment entry not found", {
-        selectors: ["input[type=file]", "upload trigger", "drop target"],
-        pasted,
-        uploadCandidates: describeUploadCandidates(),
-      });
-      if (pasted && !isGeminiPage()) {
-        debug("attachAttachment complete", {
-          method: "pasteUnverified",
-          reason: "file paste dispatched but no visible attachment indicator or upload input was found",
-          elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
-        });
-        return true;
-      }
-      if (isGeminiPage()) {
-        debug("attachAttachment complete", {
-          method: "failed",
-          reason: "Gemini did not expose a verifiable attachment target",
-          elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
-        });
-        return false;
-      }
-      throw new Error("AI 网页未找到文件上传入口");
-    }
-
-    const dataTransfer = new DataTransfer();
-    dataTransfer.items.add(file);
-
-    try {
-      fileInput.files = dataTransfer.files;
-    } catch {
-      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "files");
-      descriptor?.set?.call(fileInput, dataTransfer.files);
-    }
-
-    fileInput.dispatchEvent(new Event("input", { bubbles: true }));
-    fileInput.dispatchEvent(new Event("change", { bubbles: true }));
-
-    debug("attachment injected", {
-      inputType: fileInput.type,
-      inputName: fileInput.name,
+    const evidence = await waitForAttachmentReady(file.name, baseline, strategy);
+    const result = {
+      ready: Boolean(evidence),
+      method: strategy.attachmentMethod,
+      evidence: evidence?.kind || "",
       fileName: file.name,
-      fileSize: file.size,
-      timeoutMs: inputTimeoutMs,
-    });
-
-    const visible = await waitForAttachmentIndicator(file.name, inputTimeoutMs);
-    debug("attachment input verified", {
-      fileName: file.name,
-      visible,
-      elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
-    });
-    if (!visible) {
-      throw new Error("AI 网页未显示已上传附件");
-    }
+      pastedAt: startedAt,
+      baseline,
+    };
     debug("attachAttachment complete", {
-      method: "fileInput",
+      provider: strategy.provider,
+      ...result,
       elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
     });
-    return true;
+    return result;
   }
 
-  async function waitForAttachmentIndicator(fileName, timeoutMs) {
-    const startedAt = Date.now();
-    const target = normalizeText(fileName);
-    debug("attachment indicator wait start", {
-      fileName,
-      timeoutMs,
-    });
-
-    return new Promise((resolve) => {
-      const tick = () => {
-        const nodes = deepQueryAll(["*"]);
-        const visible = nodes.some((node) => {
-          if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
-          if (!isVisibleEditable(node) && node !== document.body && node !== document.documentElement) return false;
-          const text = normalizeText(node.textContent || "");
-          return text && (text.includes(target) || text.includes(target.slice(0, Math.min(24, target.length))));
-        });
-
-        if (visible) {
-          resolve(true);
-          return;
-        }
-
-        if (Date.now() - startedAt > timeoutMs) {
-          debug("attachment indicator timeout", {
-            fileName,
-            timeoutMs,
-            waitedMs: Date.now() - startedAt,
-          });
-          resolve(false);
-          return;
-        }
-
-        setTimeout(tick, 250);
+  function getProviderStrategy() {
+    if (location.hostname === "gemini.google.com") {
+      return {
+        provider: "gemini",
+        attachmentMethod: "paste",
+        attachmentTimeoutMs: 30000,
+        attachmentSettleMs: 1200,
+        attachmentMinAgeMs: 0,
+        attachmentReadiness: "sendButton",
+        preSubmitDelayMs: 800,
       };
-      tick();
-    });
-  }
+    }
 
-  function findDropTarget() {
-    const targets = [
-      findChatInput(),
-      document.body,
-      document.documentElement,
-    ].filter(Boolean);
+    if (location.hostname === "chat.deepseek.com") {
+      return {
+        provider: "deepseek",
+        attachmentMethod: "paste",
+        attachmentTimeoutMs: 20000,
+        attachmentSettleMs: 800,
+        attachmentMinAgeMs: 0,
+        preSubmitDelayMs: 500,
+      };
+    }
 
-    return targets.find((element) => isVisibleEditable(element) || element === document.body || element === document.documentElement) || null;
+    return {
+      provider: "kimi",
+      attachmentMethod: "paste",
+      attachmentTimeoutMs: 20000,
+      attachmentSettleMs: 800,
+      attachmentMinAgeMs: 0,
+      preSubmitDelayMs: 500,
+    };
   }
 
   function isGeminiPage() {
     return location.hostname === "gemini.google.com";
   }
 
-  function dispatchFileDrop(target, file) {
-    try {
-      const dataTransfer = new DataTransfer();
-      dataTransfer.items.add(file);
-
-      const events = [
-        new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer }),
-        new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer }),
-        new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }),
-      ];
-
-      for (const event of events) {
-        target.dispatchEvent(event);
-      }
-
-      return true;
-    } catch (error) {
-      debug("file drop failed", String(error?.message || error));
-      return false;
-    }
-  }
-
   function dispatchFilePaste(target, file) {
     try {
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
-
       const event = new ClipboardEvent("paste", {
         bubbles: true,
         cancelable: true,
+        composed: true,
         clipboardData: dataTransfer,
       });
-
+      clickAndFocus(target);
+      target.focus();
       target.dispatchEvent(event);
-      return !event.defaultPrevented;
+      return {
+        dispatched: true,
+        defaultPrevented: event.defaultPrevented,
+        clipboardFileCount: event.clipboardData?.files?.length || 0,
+        clipboardItemCount: event.clipboardData?.items?.length || 0,
+      };
     } catch (error) {
-      debug("file paste failed", String(error?.message || error));
-      return false;
+      debug("file paste failed", { error: String(error?.message || error) });
+      return { dispatched: false, error: String(error?.message || error) };
     }
   }
 
-  async function trySubmit(input, sendButton, prompt, beforeValue) {
+  async function waitForAttachmentReady(fileName, baseline, strategy, phase = "initial") {
+    const startedAt = Date.now();
+    const tracker = createStabilityTracker(strategy.attachmentSettleMs);
+    let lastLoggedKey = "";
+
+    while (Date.now() - startedAt <= strategy.attachmentTimeoutMs) {
+      const current = captureAttachmentSnapshot(fileName);
+      const evidence = diffAttachmentSnapshots(baseline, current);
+      const evidenceKey = JSON.stringify({
+        ready: evidence.ready,
+        blocked: evidence.progressDelta > 0,
+        candidateSignatures: evidence.candidateSignatures,
+        fileInputDelta: evidence.fileInputDelta,
+      });
+      const stable = tracker.observe({
+        key: evidenceKey,
+        ready: evidence.ready,
+        blocked: evidence.progressDelta > 0,
+      }, Date.now());
+
+      if (evidence.ready && evidence.progressDelta <= 0) {
+        if (evidenceKey !== lastLoggedKey) {
+          lastLoggedKey = evidenceKey;
+          debug("attachment evidence observed", {
+            provider: strategy.provider,
+            phase,
+            waitedMs: Date.now() - startedAt,
+            settleMs: strategy.attachmentSettleMs,
+            ...evidence,
+          });
+        }
+        if (stable) {
+          debug("attachment ready", {
+            provider: strategy.provider,
+            phase,
+            waitedMs: Date.now() - startedAt,
+            ...evidence,
+          });
+          return evidence;
+        }
+      }
+
+      await sleep(250);
+    }
+
+    const finalSnapshot = captureAttachmentSnapshot(fileName);
+    debug("attachment ready timeout", {
+      provider: strategy.provider,
+      phase,
+      fileName,
+      timeoutMs: strategy.attachmentTimeoutMs,
+      baseline: summarizeAttachmentSnapshot(baseline),
+      final: summarizeAttachmentSnapshot(finalSnapshot),
+      delta: diffAttachmentSnapshots(baseline, finalSnapshot),
+    });
+    return null;
+  }
+
+  async function waitForAttachmentMinimumAge(attachmentResult, strategy) {
+    const remainingMs = Math.max(
+      0,
+      strategy.attachmentMinAgeMs - (performance.now() - attachmentResult.pastedAt),
+    );
+    if (!remainingMs) return;
+    debug("attachment minimum age wait", {
+      provider: strategy.provider,
+      remainingMs: Number(remainingMs.toFixed(1)),
+      minimumAgeMs: strategy.attachmentMinAgeMs,
+    });
+    await sleep(remainingMs);
+  }
+
+  function captureAttachmentSnapshot(fileName, root = document) {
+    const normalizedName = normalizeText(fileName).toLowerCase();
+    const normalizedStem = normalizedName.replace(/\.[^.]+$/, "");
+    const filenameNeedles = [
+      normalizedName,
+      normalizedStem,
+      "pasted-text",
+      "pasted text",
+      "粘贴的文本",
+    ]
+      .filter((value) => value.length >= 4);
+    const semanticSelectors = [
+      "[class*='attachment' i]",
+      "[class*='file-card' i]",
+      "[class*='file-chip' i]",
+      "[class*='file-item' i]",
+      "[class*='file-preview' i]",
+      "[data-testid*='attachment' i]",
+      "[data-testid*='file' i]",
+      "[data-test-id*='attachment' i]",
+      "[data-test-id*='file' i]",
+      "[aria-label*='attachment' i]",
+      "[aria-label*='附件' i]",
+    ];
+    const pageText = normalizeText(root.innerText || root.body?.innerText || "").toLowerCase();
+    const filenameVisible = filenameNeedles.some((needle) => pageText.includes(needle));
+    const query = (selectors) => root === document ? deepQueryAll(selectors) : Array.from(root.querySelectorAll?.(selectors.join(",")) || []);
+    const filenameNodes = (filenameVisible ? query(["*"]) : []).filter((node) => {
+      if (!isVisibleEditable(node)) return false;
+      const text = normalizeText(node.textContent || "").toLowerCase();
+      if (!text || text.length > Math.max(240, normalizedName.length + 160)) return false;
+      return filenameNeedles.some((needle) => text.includes(needle));
+    });
+    const semanticNodes = query(semanticSelectors)
+      .filter(isVisibleEditable)
+      .filter((node) => !node.matches?.("button, [role='button'], label, input"));
+    const candidateCounts = countSignatures([...filenameNodes, ...semanticNodes]);
+    const fileInputFiles = query(['input[type="file"]'])
+      .flatMap((input) => Array.from(input.files || []))
+      .map((file) => `${file.name}|${file.size}|${file.type}`);
+    const progressCounts = countSignatures(query([
+      "progress",
+      "[role='progressbar']",
+      "[aria-busy='true']",
+      "[class*='uploading' i]",
+      "[class*='upload-progress' i]",
+    ]).filter(isVisibleEditable));
+
+    return {
+      candidateCounts,
+      fileInputFiles,
+      progressCounts,
+      candidatePreview: [...candidateCounts.keys()].slice(0, 8),
+    };
+  }
+
+  function countSignatures(nodes) {
+    const counts = new Map();
+    for (const node of nodes) {
+      const signature = describeAttachmentNode(node);
+      counts.set(signature, (counts.get(signature) || 0) + 1);
+    }
+    return counts;
+  }
+
+  function describeAttachmentNode(node) {
+    return [
+      node.tagName || "",
+      String(node.className || "").slice(0, 120),
+      node.getAttribute?.("aria-label") || "",
+      node.getAttribute?.("title") || "",
+      normalizeText(node.textContent || "").slice(0, 160),
+    ].join("|");
+  }
+
+  function diffAttachmentSnapshots(before, after) {
+    const candidateDelta = positiveCountDelta(before.candidateCounts, after.candidateCounts);
+    const progressDelta = positiveCountDelta(before.progressCounts, after.progressCounts);
+    const fileInputDelta = Math.max(0, after.fileInputFiles.length - before.fileInputFiles.length);
+    const candidateSignatures = [...after.candidateCounts.keys()]
+      .filter((signature) => (after.candidateCounts.get(signature) || 0) > (before.candidateCounts.get(signature) || 0))
+      .slice(0, 8);
+    const ready = candidateDelta > 0 || fileInputDelta > 0;
+    return {
+      ready,
+      kind: fileInputDelta > 0 ? "fileInput" : candidateDelta > 0 ? "visibleIndicator" : "",
+      candidateDelta,
+      candidateSignatures,
+      fileInputDelta,
+      progressDelta,
+    };
+  }
+
+  function positiveCountDelta(before, after) {
+    let delta = 0;
+    for (const [signature, count] of after.entries()) {
+      delta += Math.max(0, count - (before.get(signature) || 0));
+    }
+    return delta;
+  }
+
+  function summarizeAttachmentSnapshot(snapshot) {
+    return {
+      candidateCount: [...snapshot.candidateCounts.values()].reduce((sum, count) => sum + count, 0),
+      fileInputFileCount: snapshot.fileInputFiles.length,
+      progressCount: [...snapshot.progressCounts.values()].reduce((sum, count) => sum + count, 0),
+      candidatePreview: snapshot.candidatePreview,
+    };
+  }
+
+  async function trySubmit(input, sendButton, prompt, beforeValue, attachment, strategy) {
     if (!isClickable(sendButton)) {
       debug("send button still disabled", {
         className: sendButton.className,
@@ -630,8 +657,18 @@
         disabled: sendButton.disabled,
         ariaDisabled: sendButton.getAttribute("aria-disabled"),
       });
-      return false;
+      return { submitted: false, attachmentConsumed: false };
     }
+
+    const composerRoot = findComposerRoot(input, sendButton);
+    const attachmentBefore = attachment?.content
+      ? captureAttachmentSnapshot(attachment.name, composerRoot)
+      : null;
+    debug("submission baseline", {
+      provider: strategy.provider,
+      composerRoot: describeComposerRoot(composerRoot),
+      attachment: attachmentBefore ? summarizeAttachmentSnapshot(attachmentBefore) : null,
+    });
 
     const attempts = [
       () => clickLikeUser(sendButton),
@@ -643,12 +680,70 @@
       attempts[index]();
       debug("submit attempt", { attempt: index + 1 });
       if (await waitForSubmissionEffect(input, sendButton, prompt, beforeValue, 2500)) {
-        debug("submission confirmed", { attempt: index + 1 });
-        return true;
+        const attachmentConsumed = attachmentBefore
+          ? await waitForAttachmentConsumed(attachment.name, attachmentBefore, composerRoot, 5000)
+          : true;
+        debug("submission confirmed", {
+          provider: strategy.provider,
+          attempt: index + 1,
+          attachmentConsumed,
+        });
+        return { submitted: true, attachmentConsumed };
       }
     }
 
+    return { submitted: false, attachmentConsumed: false };
+  }
+
+  function findComposerRoot(input, sendButton) {
+    let current = input;
+    while (current && current !== document.body) {
+      if (current.contains?.(sendButton)) return current;
+      current = current.parentElement;
+    }
+    return input.closest?.("form") || input.parentElement || document.body;
+  }
+
+  function describeComposerRoot(root) {
+    return {
+      tag: root?.tagName || "",
+      className: String(root?.className || "").slice(0, 160),
+      childCount: root?.childElementCount || 0,
+    };
+  }
+
+  async function waitForAttachmentConsumed(fileName, before, root, timeoutMs) {
+    const startedAt = Date.now();
+    const beforeCount = totalAttachmentCandidateCount(before);
+    while (Date.now() - startedAt <= timeoutMs) {
+      const current = captureAttachmentSnapshot(fileName, root);
+      const currentCount = totalAttachmentCandidateCount(current);
+      if (currentCount < beforeCount || (!root.isConnected && currentCount === 0)) {
+        debug("attachment consumed", {
+          fileName,
+          waitedMs: Date.now() - startedAt,
+          beforeCount,
+          currentCount,
+        });
+        return true;
+      }
+      await sleep(150);
+    }
+
+    const final = captureAttachmentSnapshot(fileName, root);
+    debug("attachment consumption timeout", {
+      fileName,
+      timeoutMs,
+      before: summarizeAttachmentSnapshot(before),
+      final: summarizeAttachmentSnapshot(final),
+      composerRoot: describeComposerRoot(root),
+    });
     return false;
+  }
+
+  function totalAttachmentCandidateCount(snapshot) {
+    return [...snapshot.candidateCounts.values()].reduce((sum, count) => sum + count, 0)
+      + snapshot.fileInputFiles.length;
   }
 
   async function waitForFilledInput(input, prompt, timeoutMs) {
@@ -730,15 +825,6 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  function buildInlineContentPrompt(prompt, attachment) {
-    return [
-      prompt,
-      "",
-      "页面内容：",
-      attachment?.content || "",
-    ].join("\n").trim();
-  }
-
   function watchKimiLocation() {
     let lastHref = "";
     const report = () => {
@@ -770,15 +856,17 @@
     report();
   }
 
-  function announceReady() {
-    if (readyNotified) return;
+  function announceReady({ requestId = null, reason = "initial" } = {}) {
+    if (readyNotified && !requestId) return;
     readyNotified = true;
     chrome.runtime.sendMessage({
       source: SOURCE,
       type: "PAGE_PILOT_DEEPSEEK_READY",
       href: location.href,
+      requestId,
+      reason,
     }).catch(() => {});
-    debug("ready announced");
+    debug("ready announced", { requestId, reason });
   }
 
   function fillInput(input, value) {

@@ -6,7 +6,12 @@ const DEBUG_STARTED_AT = performance.now();
 
 (async () => {
   try {
-    debug("extractor start", { href: location.href, title: document.title });
+    debug("extractor start", {
+      href: location.href,
+      title: document.title,
+      readyState: document.readyState,
+      ...describePageContent(),
+    });
     const article = await extractArticle();
     const markdown = normalizeMarkdown(article.markdown);
     debug("extractor markdown normalized", {
@@ -70,13 +75,17 @@ function extractGenericArticle() {
   }
 
   const turndown = createTurndown();
-  const markdown = turndown.turndown(article.content);
+  const convertedMarkdown = turndown.turndown(article.content);
+  const markdown = recoverLostMarkdown(article, convertedMarkdown);
   debug("readability complete", {
     elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
     title: article.title || document.title,
     textLength: article.textContent.length,
     contentLength: article.content.length,
     markdownLength: markdown.length,
+    convertedMarkdownLength: convertedMarkdown.length,
+    textPreview: previewText(article.textContent),
+    markdownPreview: previewText(markdown),
   });
 
   return {
@@ -87,6 +96,77 @@ function extractGenericArticle() {
     textLength: article.textContent.length,
     contentLength: article.content.length,
   };
+}
+
+function recoverLostMarkdown(article, convertedMarkdown) {
+  const articleText = sanitizeText(article.textContent);
+  const markdown = normalizeMarkdown(convertedMarkdown);
+  const fallback = findLargestMainCandidate();
+  const fallbackTextLength = fallback?.text.length || 0;
+  const articleConversionRatio = articleText.length ? markdown.length / articleText.length : 1;
+  const fallbackConversionRatio = fallbackTextLength ? markdown.length / fallbackTextLength : 1;
+  debug("markdown conversion quality", {
+    articleTextLength: articleText.length,
+    markdownLength: markdown.length,
+    fallbackSelector: fallback?.selector || "",
+    fallbackTextLength,
+    articleConversionRatio: Number(articleConversionRatio.toFixed(3)),
+    fallbackConversionRatio: Number(fallbackConversionRatio.toFixed(3)),
+  });
+
+  const shouldUseFallback = fallback
+    && fallbackTextLength >= 500
+    && fallbackConversionRatio < 0.25;
+  if (!shouldUseFallback) {
+    return markdown;
+  }
+
+  debug("markdown loss fallback selected", {
+    selector: fallback.selector,
+    articleTextLength: articleText.length,
+    markdownLength: markdown.length,
+    conversionRatio: Number(fallbackConversionRatio.toFixed(3)),
+    fallbackTextLength: fallback.text.length,
+    fallbackPreview: previewText(fallback.text),
+  });
+  return fallback.text;
+}
+
+function describePageContent() {
+  const mainCandidates = getMainCandidates().map(({ selector, nodes }) => {
+    return {
+      selector,
+      count: nodes.length,
+      maxTextLength: nodes.reduce((max, node) => Math.max(max, visibleText(node).length), 0),
+    };
+  });
+  const pageText = visibleText(document.body);
+  return {
+    bodyTextLength: pageText.length,
+    bodyTextPreview: previewText(pageText),
+    mainCandidates,
+  };
+}
+
+function findLargestMainCandidate() {
+  return getMainCandidates()
+    .flatMap(({ selector, nodes }) => nodes.map((node) => ({ selector, text: visibleText(node) })))
+    .sort((left, right) => right.text.length - left.text.length)[0] || null;
+}
+
+function getMainCandidates() {
+  return ["main", "article", "[role='main']", "#main-content"].map((selector) => ({
+    selector,
+    nodes: [...document.querySelectorAll(selector)],
+  }));
+}
+
+function visibleText(node) {
+  return sanitizeText(node?.innerText || node?.textContent || "");
+}
+
+function previewText(value) {
+  return sanitizeText(value).slice(0, 300);
 }
 
 function createTurndown() {
@@ -114,11 +194,22 @@ function debug(message, extra) {
     at: new Date().toISOString(),
   };
   if (extra !== undefined) {
-    console.log(`${DEBUG_PREFIX} ${message} ${toJson({ ...meta, ...extra })}`);
+    const detail = { ...meta, ...extra };
+    console.log(`${DEBUG_PREFIX} ${message} ${toJson(detail)}`);
+    chrome.runtime.sendMessage({
+      type: "PAGE_PILOT_EXTRACTION_DEBUG",
+      message,
+      detail,
+    }).catch(() => {});
     return;
   }
 
   console.log(`${DEBUG_PREFIX} ${message} ${toJson(meta)}`);
+  chrome.runtime.sendMessage({
+    type: "PAGE_PILOT_EXTRACTION_DEBUG",
+    message,
+    detail: meta,
+  }).catch(() => {});
 }
 
 function toJson(value) {

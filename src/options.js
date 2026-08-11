@@ -8,11 +8,11 @@ const DEFAULT_SETTINGS = {
 
 const DEFAULT_SUMMARY_PROMPTS = {
   zh: [
-    "请基于我上传的页面附件，总结主要内容，提炼关键要点，并指出值得继续追问的问题。",
+    "请基于我上传的页面附件，用简洁中文总结。只保留最重要的 3-5 个要点，总字数控制在 300 字以内，并列出 1-3 个值得追问的问题。不要复述原文。",
     "输出请使用中文。",
   ].join("\n"),
   en: [
-    "Please summarize the page attachment I uploaded, extract the key points, and suggest useful follow-up questions.",
+    "Please summarize the uploaded page attachment concisely. Keep only the 3-5 most important points, stay under 300 words, and list 1-3 useful follow-up questions. Do not repeat the source text.",
     "Respond in English.",
   ].join("\n"),
 };

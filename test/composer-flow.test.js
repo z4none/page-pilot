@@ -1,0 +1,126 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { createStabilityTracker, runComposerFlow } from "../src/composer-flow.js";
+
+test("does not fill or submit until the attachment is ready", async () => {
+  const events = [];
+  let releaseAttachment;
+  const attachmentReady = new Promise((resolve) => {
+    releaseAttachment = resolve;
+  });
+
+  const flow = runComposerFlow({
+    message: {
+      prompt: "summarize",
+      autoSend: true,
+      attachment: { content: "page body" },
+    },
+    waitForInput: async () => {
+      events.push("input");
+      return { id: "composer" };
+    },
+    attachAttachment: async () => {
+      events.push("attach:start");
+      await attachmentReady;
+      events.push("attach:ready");
+      return { ready: true, method: "paste" };
+    },
+    fillPrompt: () => events.push("fill"),
+    verifyPrompt: async () => {
+      events.push("verify");
+      return true;
+    },
+    submitPrompt: async () => {
+      events.push("submit");
+      return true;
+    },
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ["input", "attach:start"]);
+
+  releaseAttachment();
+  await flow;
+  assert.deepEqual(events, ["input", "attach:start", "attach:ready", "fill", "verify", "submit"]);
+});
+
+test("attachment failure prevents prompt-only submission", async () => {
+  const events = [];
+
+  await assert.rejects(
+    runComposerFlow({
+      message: {
+        prompt: "summarize",
+        autoSend: true,
+        attachment: { content: "page body" },
+      },
+      waitForInput: async () => ({ id: "composer" }),
+      attachAttachment: async () => ({ ready: false, method: "paste" }),
+      fillPrompt: () => events.push("fill"),
+      verifyPrompt: async () => true,
+      submitPrompt: async () => {
+        events.push("submit");
+        return true;
+      },
+    }),
+    /附件未就绪/,
+  );
+
+  assert.deepEqual(events, []);
+});
+
+test("manual mode prepares one attachment and one prompt without submitting", async () => {
+  const events = [];
+
+  await runComposerFlow({
+    message: {
+      prompt: "summarize",
+      autoSend: false,
+      attachment: { content: "page body" },
+    },
+    waitForInput: async () => ({ id: "composer" }),
+    attachAttachment: async () => {
+      events.push("attach");
+      return { ready: true, method: "paste" };
+    },
+    fillPrompt: () => events.push("fill"),
+    verifyPrompt: async () => true,
+    submitPrompt: async () => {
+      events.push("submit");
+      return true;
+    },
+  });
+
+  assert.deepEqual(events, ["attach", "fill"]);
+});
+
+test("attachment signature changes reset the settling window", () => {
+  const tracker = createStabilityTracker(1200);
+
+  assert.equal(tracker.observe({ key: "uploading-0", ready: true, blocked: false }, 0), false);
+  assert.equal(tracker.observe({ key: "uploading-35", ready: true, blocked: false }, 1000), false);
+  assert.equal(tracker.observe({ key: "uploading-35", ready: true, blocked: false }, 2100), false);
+  assert.equal(tracker.observe({ key: "uploading-35", ready: true, blocked: false }, 2200), true);
+});
+
+test("submission cannot report success while the attachment remains in the composer", async () => {
+  await assert.rejects(
+    runComposerFlow({
+      message: {
+        prompt: "summarize",
+        autoSend: true,
+        attachment: { content: "page body" },
+      },
+      waitForInput: async () => ({ id: "composer" }),
+      attachAttachment: async () => ({ ready: true, method: "paste" }),
+      fillPrompt: () => {},
+      verifyPrompt: async () => true,
+      submitPrompt: async () => ({
+        submitted: true,
+        attachmentConsumed: false,
+      }),
+    }),
+    /附件仍留在输入区/,
+  );
+});
