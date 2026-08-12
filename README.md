@@ -6,6 +6,8 @@ Page Pilot is an open-source Chrome extension that summarizes the current page i
 
 > **No API key required.** It reuses the web session you have already signed in to on Kimi, DeepSeek, or Gemini. No model API account, key, or API billing setup is needed.
 
+![Page Pilot screenshot](screenshot.png)
+
 ## Features
 
 - Summarize the current page from the `Summarize page` context-menu item.
@@ -40,6 +42,6 @@ This project does not use a developer-operated model proxy or backend. However, 
 - Login happens on the provider's own page; Page Pilot does not ask for account passwords or API keys.
 - Pending page content is held in `chrome.storage.session`; provider selection and custom prompts use Chrome sync storage.
 - Content is read and sent only after you invoke the page context-menu action. Use **View extracted content** before sending when auditing a page.
-- `activeTab`, `scripting`, and `<all_urls>` allow extraction from the page you explicitly summarize. Provider content scripts match only Kimi, DeepSeek, and Gemini domains.
+- `activeTab` and `scripting` allow extraction from the page you explicitly summarize. Provider content scripts match only Kimi, DeepSeek, and Gemini domains.
 - To embed DeepSeek and Gemini, the extension uses a `declarativeNetRequest` rule that removes their framing response headers for those domains only. This is security-sensitive; audit the source and use the development build only when you accept this trade-off.
 - Provider web UI changes, sign-in restrictions, content policies, and anti-automation measures can affect compatibility. The extension does not bypass access controls or payment restrictions.

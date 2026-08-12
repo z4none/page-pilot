@@ -6,6 +6,8 @@ Page Pilot 是一个开源 Chrome 扩展：在网页右键选择“总结页面�
 
 > **无需 API Key**：不需要模型 API 账号、密钥或 API 计费配置，直接复用你已经登录的 Kimi、DeepSeek 或 Gemini 网页会话。
 
+![Page Pilot 截图](screenshot.png)
+
 ## 功能
 
 - 右键菜单总结当前页面。
@@ -40,6 +42,6 @@ npm run check
 - 登录在 Provider 网页自身完成；扩展不要求账号密码或 API Key。
 - 待发送页面内容保存在 `chrome.storage.session`；Provider 选择和自定义提示词保存在 Chrome 同步存储中。
 - 仅在用户通过右键菜单触发总结后读取并发送页面内容；可先通过“查看提取内容”检查附件。
-- `activeTab`、`scripting` 和 `<all_urls>` 用于提取用户主动总结的当前网页；Provider 内容脚本只匹配 Kimi、DeepSeek 与 Gemini 域名。
+- `activeTab` 和 `scripting` 用于提取用户主动总结的当前网页；Provider 内容脚本只匹配 Kimi、DeepSeek 与 Gemini 域名。
 - 为在侧栏嵌入 DeepSeek/Gemini，扩展仅对这两个域名移除防嵌入响应头。这是安全敏感的兼容措施，请审计源码并在接受此取舍后使用开发版。
 - Provider 网页改版、登录限制、内容策略与反自动化机制都可能影响兼容性；扩展不会绕过访问控制或付费限制。

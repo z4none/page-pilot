@@ -43,11 +43,10 @@ Page Pilot does not intentionally store the extracted page attachment in sync st
 
 Page Pilot requests permissions only to provide its features:
 
-- `activeTab`, `scripting`, and host access to extract content from the page you explicitly ask it to summarize.
+- `activeTab` and `scripting` to extract content from the page you explicitly ask it to summarize.
 - `contextMenus` to provide the page-summary command.
 - `sidePanel` to show the selected AI web chat.
 - `storage` to retain settings, pending session data, and provider chat URLs.
-- `tabs` to open the side panel for the current browser window.
 - `declarativeNetRequest` to enable supported provider pages to render in the side-panel iframe.
 
 The extension's provider automation scripts run only on the configured Kimi, DeepSeek, and Gemini domains. Page extraction is initiated only after your context-menu action.

@@ -24,7 +24,6 @@
     "activeTab",
     "contextMenus",
     "declarativeNetRequest",
-    "tabs",
     "sidePanel",
     "scripting",
     "storage"
@@ -39,14 +38,11 @@
     ]
   },
   "host_permissions": [
-    "<all_urls>",
     "https://www.kimi.com/*",
     "https://kimi.com/*",
     "https://kimi.moonshot.cn/*",
     "https://chat.deepseek.com/*",
-    "https://gemini.google.com/*",
-    "https://accounts.google.com/*",
-    "https://www.google.com/*"
+    "https://gemini.google.com/*"
   ],
   "side_panel": {
     "default_path": "sidepanel.html"
