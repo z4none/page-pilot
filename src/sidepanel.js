@@ -26,6 +26,7 @@ const PROVIDERS = {
 };
 const STORAGE_KEYS = {
   payload: "lastPromptPayload",
+  autoSendPayloadKey: "autoSendPayloadKey",
   status: "panelStatus",
   settings: "settings",
   kimiChatUrl: "activeKimiChatUrl",
@@ -52,9 +53,9 @@ const state = {
   sendPending: false,
   autoSentPayloadKey: null,
   sendScheduled: false,
-  deepseekReady: false,
+  providerReady: false,
   lastFrameReadinessProbeAt: 0,
-  kimiFrameRequested: false,
+  providerFrameRequested: false,
   providerChatUrls: {
     kimi: "",
     deepseek: "",
@@ -63,13 +64,12 @@ const state = {
 };
 
 const elements = {
-  kimiPanel: document.querySelector("#kimi-panel"),
   status: document.querySelector("#status"),
   settingsButton: document.querySelector("#settings-button"),
   contentButton: document.querySelector("#content-button"),
   resetSessionButton: document.querySelector("#reset-session-button"),
-  kimiStatus: document.querySelector("#status"),
-  deepseekFrame: document.querySelector("#deepseek-frame"),
+  providerStatus: document.querySelector("#status"),
+  providerFrame: document.querySelector("#provider-frame"),
   contentModal: document.querySelector("#content-modal"),
   contentCancelIcon: document.querySelector("#content-cancel-icon"),
   contentMeta: document.querySelector("#content-meta"),
@@ -94,6 +94,7 @@ async function init() {
 
   const session = await chrome.storage.session.get([
     STORAGE_KEYS.payload,
+    STORAGE_KEYS.autoSendPayloadKey,
     STORAGE_KEYS.status,
     STORAGE_KEYS.kimiChatUrl,
     STORAGE_KEYS.deepseekChatUrl,
@@ -112,13 +113,17 @@ async function init() {
 
   if (session.panelStatus) {
     setStatus(session.panelStatus.message);
-    preloadKimiFrame();
+    preloadProviderFrame();
   }
 
   if (session.lastPromptPayload) {
     renderPayload(session.lastPromptPayload);
+    await maybeAutoSend(session.lastPromptPayload, {
+      source: "session-recovery",
+      claimedPayloadKey: session.autoSendPayloadKey || "",
+    });
   }
-  preloadKimiFrame();
+  preloadProviderFrame();
 
   elements.contentButton.addEventListener("click", openContentModal);
   elements.contentCancelIcon.addEventListener("click", closeContentModal);
@@ -132,11 +137,11 @@ async function init() {
     state.settingsPromptCustomizedDraft = true;
   });
   elements.modalResetPrompt.addEventListener("click", resetPromptToLocalizedDefault);
-  elements.modalResetSession.addEventListener("click", resetKimiChatSession);
+  elements.modalResetSession.addEventListener("click", resetProviderChatSession);
   elements.resetSessionButton.addEventListener("click", resetSession);
-  elements.deepseekFrame.addEventListener("load", () => {
-    debug("iframe load", { src: elements.deepseekFrame.src });
-    if (elements.deepseekFrame.src === "about:blank") return;
+  elements.providerFrame.addEventListener("load", () => {
+    debug("iframe load", { src: elements.providerFrame.src });
+    if (elements.providerFrame.src === "about:blank") return;
     requestFrameReadiness("iframe-load", true);
     if (state.sendPending && !state.sendScheduled) {
       scheduleSendRetry();
@@ -182,10 +187,10 @@ function handleRuntimeMessage(message) {
 
   if (message?.type === "PAGE_PILOT_STATUS") {
     setStatus(message.status.message);
-    preloadKimiFrame();
+    preloadProviderFrame();
   }
 
-  if (message?.type === "PAGE_PILOT_KIMI_LOCATION") {
+  if (message?.type === "PAGE_PILOT_PROVIDER_LOCATION") {
     rememberProviderChatUrl(message.href || "");
   }
 
@@ -198,10 +203,10 @@ function handleRuntimeMessage(message) {
       attachmentSize: message.payload?.attachment?.size || 0,
     });
     renderPayload(message.payload);
-    maybeAutoSend(message.payload);
+    void maybeAutoSend(message.payload, { source: "runtime-message" });
   }
 
-  if (message?.type === "PAGE_PILOT_DEEPSEEK_SEND_RESULT" || message?.type === "DEEPSEEK_SEND_RESULT") {
+  if (message?.type === "PAGE_PILOT_PROVIDER_SEND_RESULT") {
     const resultProvider = getProviderIdFromUrl(message.href || message.chatUrl || "");
     if (state.activeRequestProviderId && resultProvider && resultProvider !== state.activeRequestProviderId) {
       debug("stale provider result ignored", {
@@ -215,18 +220,18 @@ function handleRuntimeMessage(message) {
     rememberProviderChatUrl(message.href || message.chatUrl || "");
     if (message.ok) {
       const successMessage = t("sent", provider.label);
-      elements.kimiStatus.textContent = successMessage;
+      elements.providerStatus.textContent = successMessage;
       setStatus(successMessage);
     } else {
       const errorMessage = t("sendFailed", message.error || `No ${provider.label} input found`);
-      elements.kimiStatus.textContent = errorMessage;
+      elements.providerStatus.textContent = errorMessage;
       setStatus(errorMessage);
-      enterKimiState(errorMessage);
+      enterProviderState(errorMessage);
     }
     state.activeRequestProviderId = null;
   }
 
-  if (message?.type === "PAGE_PILOT_DEEPSEEK_READY" || message?.type === "DEEPSEEK_READY") {
+  if (message?.type === "PAGE_PILOT_PROVIDER_READY") {
     const readyProvider = getProviderIdFromUrl(message.href || message.chatUrl || "");
     if (state.pendingProviderId && readyProvider && readyProvider !== state.pendingProviderId) {
       debug("stale provider ready ignored", {
@@ -238,14 +243,14 @@ function handleRuntimeMessage(message) {
     }
     const provider = getRequestProvider();
     rememberProviderChatUrl(message.href || message.chatUrl || "");
-    debug("deepseek ready", {
+    debug("provider ready", {
       requestId: message.requestId,
       reason: message.reason || "initial",
       href: message.href || message.chatUrl || "",
       provider: provider.id,
       activeChatUrl: getRequestProviderChatUrl(),
     });
-    state.deepseekReady = true;
+    state.providerReady = true;
     flushPendingPrompt();
   }
 }
@@ -311,16 +316,13 @@ async function saveSettingsFromModal() {
   };
 
   await chrome.storage.sync.set({ [STORAGE_KEYS.settings]: state.settings });
-  if (settings.provider !== previousProvider && (state.sendPending || state.activeRequestProviderId)) {
-    debug("provider change deferred", {
-      activeProvider: getRequestProvider().id,
+  if (settings.provider !== previousProvider) {
+    debug("provider change queued", {
+      currentFrameProvider: previousProvider,
       nextProvider: settings.provider,
+      appliesOn: "next-summary",
+      requestInProgress: Boolean(state.sendPending || state.activeRequestProviderId),
     });
-  } else if (settings.provider !== previousProvider) {
-    state.kimiFrameRequested = false;
-    state.deepseekReady = false;
-    elements.deepseekFrame.src = "about:blank";
-    preloadKimiFrame();
   }
   elements.settingsModalStatus.textContent = t("settingsSaved");
   setStatus(t("settingsSaved"));
@@ -341,13 +343,13 @@ function resetPromptToLocalizedDefault() {
   });
 }
 
-async function resetKimiChatSession() {
+async function resetProviderChatSession() {
   const provider = getCurrentProvider();
   state.providerChatUrls[provider.id] = "";
-  state.kimiFrameRequested = false;
-  state.deepseekReady = false;
+  state.providerFrameRequested = false;
+  state.providerReady = false;
   await chrome.storage.session.remove(provider.chatStorageKey);
-  elements.deepseekFrame.src = "about:blank";
+  elements.providerFrame.src = "about:blank";
   elements.settingsModalStatus.textContent = t("sessionReset", provider.label);
   setStatus(t("sessionReset", provider.label));
   debug("resetProviderChatSession", { provider: provider.id });
@@ -403,22 +405,34 @@ async function sendToProvider(options = {}) {
     },
   });
 
-  enterKimiState(autoSend ? t("uploading", requestProvider.label) : t("filling", requestProvider.label));
+  enterProviderState(autoSend ? t("uploading", requestProvider.label) : t("filling", requestProvider.label));
   requestFrameReadiness("send-start", true);
   flushPendingPrompt();
 }
 
-function maybeAutoSend(payload) {
+async function maybeAutoSend(payload, { source = "unknown", claimedPayloadKey = "" } = {}) {
   const key = getPayloadKey(payload);
-  if (state.autoSentPayloadKey === key) return true;
+  const alreadyClaimed = state.autoSentPayloadKey === key || claimedPayloadKey === key;
+  if (alreadyClaimed) {
+    debug("auto-send skipped", {
+      source,
+      reason: "payload-already-claimed",
+      key,
+      stateKey: state.autoSentPayloadKey,
+      claimedPayloadKey,
+    });
+    return false;
+  }
 
   state.autoSentPayloadKey = key;
+  await chrome.storage.session.set({ [STORAGE_KEYS.autoSendPayloadKey]: key });
   debug("auto-send armed", {
+    source,
     key,
     promptLength: payload?.prompt?.length || 0,
     markdownLength: payload?.markdown?.length || 0,
   });
-  enterKimiState(t("preparing", getCurrentProvider().label));
+  enterProviderState(t("preparing", getCurrentProvider().label));
   sendToProvider({
     autoSend: true,
     promptOverride: payload?.prompt || "",
@@ -428,41 +442,41 @@ function maybeAutoSend(payload) {
 
 function enterIdleState() {
   setStatus(t("statusWaiting"));
-  preloadKimiFrame();
+  preloadProviderFrame();
 }
 
-function enterKimiState(message = t("preparing", getCurrentProvider().label)) {
-  elements.kimiStatus.textContent = message;
+function enterProviderState(message = t("preparing", getCurrentProvider().label)) {
+  elements.providerStatus.textContent = message;
   setStatus(message);
-  preloadKimiFrame();
-  debug("enterKimiState", { message });
+  preloadProviderFrame();
+  debug("enterProviderState", { message });
 }
 
-function preloadKimiFrame() {
+function preloadProviderFrame() {
   const provider = getRequestProvider();
   const targetUrl = getRequestProviderChatUrl() || provider.homeUrl;
-  if (state.kimiFrameRequested && elements.deepseekFrame.src === targetUrl) {
+  if (state.providerFrameRequested && elements.providerFrame.src === targetUrl) {
     requestFrameReadiness("reuse-requested-frame", true);
     return;
   }
-  if (elements.deepseekFrame.src === targetUrl) {
-    state.kimiFrameRequested = true;
+  if (elements.providerFrame.src === targetUrl) {
+    state.providerFrameRequested = true;
     requestFrameReadiness("reuse-frame", true);
     return;
   }
 
-  state.kimiFrameRequested = true;
-  debug("preloadKimiFrame", {
+  state.providerFrameRequested = true;
+  debug("preloadProviderFrame", {
     provider: provider.id,
     targetUrl,
     hasChatUrl: Boolean(getCurrentProviderChatUrl()),
   });
-  elements.deepseekFrame.title = provider.label;
-  elements.deepseekFrame.src = targetUrl;
+  elements.providerFrame.title = provider.label;
+  elements.providerFrame.src = targetUrl;
 }
 
 function requestFrameReadiness(reason, force = false) {
-  if (!state.sendPending || !elements.deepseekFrame.contentWindow) return;
+  if (!state.sendPending || !elements.providerFrame.contentWindow) return;
 
   const now = Date.now();
   if (!force && now - state.lastFrameReadinessProbeAt < 500) return;
@@ -470,7 +484,7 @@ function requestFrameReadiness(reason, force = false) {
 
   const provider = getRequestProvider();
   const requestId = state.pendingRequestId;
-  elements.deepseekFrame.contentWindow.postMessage({
+  elements.providerFrame.contentWindow.postMessage({
     source: SOURCE,
     type: "PAGE_PILOT_PING",
     requestId,
@@ -480,7 +494,7 @@ function requestFrameReadiness(reason, force = false) {
     reason,
     provider: provider.id,
     requestId,
-    frameSrc: elements.deepseekFrame.src,
+    frameSrc: elements.providerFrame.src,
   });
 }
 
@@ -567,8 +581,8 @@ function sendCurrentPrompt() {
     promptLength: messagePrompt.length,
     originalPromptLength: prompt.length,
     inlineAttachment: false,
-    hasFrameWindow: Boolean(elements.deepseekFrame.contentWindow),
-    deepseekReady: state.deepseekReady,
+    hasFrameWindow: Boolean(elements.providerFrame.contentWindow),
+    providerReady: state.providerReady,
     requestId: state.pendingRequestId,
     autoSend: state.pendingAutoSend,
     pendingAgeMs: state.pendingStartedAt ? Date.now() - state.pendingStartedAt : 0,
@@ -577,19 +591,19 @@ function sendCurrentPrompt() {
     attachmentContentLength: messageAttachment?.content?.length || 0,
   });
 
-  if (!state.deepseekReady) {
-    elements.kimiStatus.textContent = t("waitingReady", getCurrentProvider().label);
+  if (!state.providerReady) {
+    elements.providerStatus.textContent = t("waitingReady", getCurrentProvider().label);
     return;
   }
 
-  elements.kimiStatus.textContent = state.pendingAutoSend
+  elements.providerStatus.textContent = state.pendingAutoSend
     ? t("uploading", getCurrentProvider().label)
     : t("filling", getCurrentProvider().label);
   state.sendPending = false;
-  state.deepseekReady = false;
+  state.providerReady = false;
   state.activeRequestProviderId = state.pendingProviderId;
 
-  elements.deepseekFrame.contentWindow?.postMessage({
+  elements.providerFrame.contentWindow?.postMessage({
     source: SOURCE,
     type: "SEND_PROMPT",
     requestId: state.pendingRequestId || createRequestId(),
@@ -602,7 +616,7 @@ function sendCurrentPrompt() {
   state.pendingRequestId = null;
   state.pendingProviderId = null;
   state.pendingStartedAt = 0;
-  elements.kimiStatus.textContent = state.pendingAutoSend
+  elements.providerStatus.textContent = state.pendingAutoSend
     ? t("sent", getCurrentProvider().label)
     : t("filling", getCurrentProvider().label);
   debug("postMessage sent", {
@@ -624,7 +638,7 @@ function scheduleSendRetry() {
 
   state.sendScheduled = true;
   debug("schedule send after load", {
-    deepseekReady: state.deepseekReady,
+    providerReady: state.providerReady,
     pendingAgeMs: state.pendingStartedAt ? Date.now() - state.pendingStartedAt : 0,
   });
   setTimeout(() => {
@@ -635,16 +649,16 @@ function scheduleSendRetry() {
 
 function flushPendingPrompt() {
   if (!state.sendPending || !state.pendingPrompt) return;
-  if (!state.deepseekReady) {
+  if (!state.providerReady) {
     const pendingAgeMs = state.pendingStartedAt ? Date.now() - state.pendingStartedAt : 0;
     if (pendingAgeMs > 10000) {
       const errorMessage = t("sendFailed", t("notReady", getCurrentProvider().label));
-      elements.kimiStatus.textContent = errorMessage;
+      elements.providerStatus.textContent = errorMessage;
       setStatus(errorMessage);
       state.sendPending = false;
       debug("send wait timed out", {
         pendingAgeMs,
-        frameSrc: elements.deepseekFrame.src,
+        frameSrc: elements.providerFrame.src,
       });
       return;
     }
@@ -670,16 +684,20 @@ async function resetSession() {
   state.sendPending = false;
   state.pendingStartedAt = 0;
   state.autoSentPayloadKey = null;
-  state.deepseekReady = false;
+  state.providerReady = false;
   state.pendingAutoSend = false;
-  state.kimiFrameRequested = false;
+  state.providerFrameRequested = false;
   elements.contentButton.disabled = true;
   closeContentModal();
   state.providerChatUrls[getCurrentProvider().id] = "";
-  await chrome.storage.session.remove([STORAGE_KEYS.payload, getCurrentProvider().chatStorageKey]);
-  elements.deepseekFrame.src = "about:blank";
+  await chrome.storage.session.remove([
+    STORAGE_KEYS.payload,
+    STORAGE_KEYS.autoSendPayloadKey,
+    getCurrentProvider().chatStorageKey,
+  ]);
+  elements.providerFrame.src = "about:blank";
   setStatus(t("sessionReset", getCurrentProvider().label));
-  preloadKimiFrame();
+  preloadProviderFrame();
   debug("resetSession", { provider: getCurrentProvider().id });
 }
 

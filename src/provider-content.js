@@ -44,7 +44,7 @@ import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
       debug("send result", result);
       chrome.runtime.sendMessage({
         source: SOURCE,
-        type: "PAGE_PILOT_DEEPSEEK_SEND_RESULT",
+        type: "PAGE_PILOT_PROVIDER_SEND_RESULT",
         ...result,
         requestId: message.requestId,
         href: location.href,
@@ -67,7 +67,7 @@ import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
   });
 
   if (IS_PRIMARY_FRAME) {
-    watchKimiLocation();
+    watchProviderLocation();
     announceReady();
   } else {
     debug("secondary frame ignored", { href: location.href });
@@ -271,6 +271,20 @@ import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
           return input;
         },
         attachAttachment: (attachment, input) => attachAttachment(attachment, input, providerStrategy),
+        refreshInput: async (previousInput, attachmentResult) => {
+          const input = await waitForElement(findChatInput, 10000);
+          debug("input refreshed after attachment", {
+            provider: providerStrategy.provider,
+            changed: input !== previousInput,
+            previousConnected: Boolean(previousInput?.isConnected),
+            currentConnected: Boolean(input?.isConnected),
+            attachmentReady: Boolean(attachmentResult?.ready),
+            tag: input.tagName,
+            className: String(input.className || ""),
+            textLength: readInputValue(input).length,
+          });
+          return input;
+        },
         fillPrompt: (input, prompt) => {
           debug("fill path selected", {
             provider: providerStrategy.provider,
@@ -825,14 +839,14 @@ import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  function watchKimiLocation() {
+  function watchProviderLocation() {
     let lastHref = "";
     const report = () => {
       if (location.href === lastHref) return;
       lastHref = location.href;
       chrome.runtime.sendMessage({
         source: SOURCE,
-        type: "PAGE_PILOT_KIMI_LOCATION",
+        type: "PAGE_PILOT_PROVIDER_LOCATION",
         href: location.href,
       }).catch(() => {});
       debug("location reported", { href: location.href });
@@ -861,7 +875,7 @@ import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
     readyNotified = true;
     chrome.runtime.sendMessage({
       source: SOURCE,
-      type: "PAGE_PILOT_DEEPSEEK_READY",
+      type: "PAGE_PILOT_PROVIDER_READY",
       href: location.href,
       requestId,
       reason,

@@ -3,6 +3,7 @@ import { t } from "./i18n.js";
 const MENU_ID = "page-pilot-summarize-page";
 const STORAGE_KEYS = {
   payload: "lastPromptPayload",
+  autoSendPayloadKey: "autoSendPayloadKey",
   status: "panelStatus",
   settings: "settings",
 };
@@ -98,6 +99,7 @@ async function handleExtractionResult(result, tab) {
 async function publishPayload(payload) {
   await chrome.storage.session.set({
     [STORAGE_KEYS.payload]: payload,
+    [STORAGE_KEYS.autoSendPayloadKey]: "",
     [STORAGE_KEYS.status]: {
       state: "ready",
       message: payload.mode === "markdown" ? t("statusExtracted") : t("statusFallback"),

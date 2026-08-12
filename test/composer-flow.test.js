@@ -95,6 +95,42 @@ test("manual mode prepares one attachment and one prompt without submitting", as
   assert.deepEqual(events, ["attach", "fill"]);
 });
 
+test("refreshes a replaced input after attachment upload before filling the prompt", async () => {
+  const events = [];
+  const initialInput = { id: "before-upload" };
+  const activeInput = { id: "after-upload" };
+
+  await runComposerFlow({
+    message: {
+      prompt: "summarize",
+      autoSend: false,
+      attachment: { content: "page body" },
+    },
+    waitForInput: async () => initialInput,
+    attachAttachment: async (attachment, input) => {
+      events.push(`attach:${input.id}`);
+      return { ready: true, method: "paste" };
+    },
+    refreshInput: async (input) => {
+      events.push(`refresh:${input.id}`);
+      return activeInput;
+    },
+    fillPrompt: (input) => events.push(`fill:${input.id}`),
+    verifyPrompt: async (input) => {
+      events.push(`verify:${input.id}`);
+      return true;
+    },
+    submitPrompt: async () => true,
+  });
+
+  assert.deepEqual(events, [
+    "attach:before-upload",
+    "refresh:before-upload",
+    "fill:after-upload",
+    "verify:after-upload",
+  ]);
+});
+
 test("attachment signature changes reset the settling window", () => {
   const tracker = createStabilityTracker(1200);
 

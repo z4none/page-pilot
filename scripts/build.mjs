@@ -27,8 +27,8 @@ await Promise.all([
   }),
   esbuild.build({
     ...shared,
-    entryPoints: ["src/deepseek-content.js"],
-    outfile: `${outdir}/deepseek-content.js`,
+    entryPoints: ["src/provider-content.js"],
+    outfile: `${outdir}/provider-content.js`,
   }),
   esbuild.build({
     ...shared,
@@ -48,5 +48,6 @@ await Promise.all([
   copyFile("src/sidepanel.html", `${outdir}/sidepanel.html`),
   copyFile("src/options.html", `${outdir}/options.html`),
   copyFile("src/styles.css", `${outdir}/styles.css`),
+  cp("src/icons", `${outdir}/icons`, { recursive: true }),
   cp("src/_locales", `${outdir}/_locales`, { recursive: true }),
 ]);

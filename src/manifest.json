@@ -4,8 +4,18 @@
   "name": "__MSG_extensionName__",
   "version": "0.1.0",
   "description": "__MSG_extensionDescription__",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "action": {
-    "default_title": "Page Pilot"
+    "default_title": "Page Pilot",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
   },
   "background": {
     "service_worker": "background.js"
@@ -22,7 +32,7 @@
   "declarative_net_request": {
     "rule_resources": [
       {
-        "id": "deepseek_frame_headers",
+        "id": "provider_frame_headers",
         "enabled": true,
         "path": "rules.json"
       }
@@ -54,7 +64,7 @@
         "https://chat.deepseek.com/*",
         "https://gemini.google.com/*"
       ],
-      "js": ["deepseek-content.js"],
+      "js": ["provider-content.js"],
       "all_frames": true,
       "run_at": "document_idle"
     }

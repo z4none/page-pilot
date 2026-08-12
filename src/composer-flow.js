@@ -1,6 +1,7 @@
 export async function runComposerFlow({
   message,
   waitForInput,
+  refreshInput,
   attachAttachment,
   fillPrompt,
   verifyPrompt,
@@ -17,23 +18,24 @@ export async function runComposerFlow({
     }
   }
 
-  const beforeValue = readComposerValue(input);
-  fillPrompt(input, message.prompt);
-  const filled = await verifyPrompt(input, message.prompt);
+  const activeInput = refreshInput ? await refreshInput(input, attachmentResult) : input;
+  const beforeValue = readComposerValue(activeInput);
+  fillPrompt(activeInput, message.prompt);
+  const filled = await verifyPrompt(activeInput, message.prompt);
   if (!filled) {
     throw new Error(t("inputNotFilled"));
   }
 
   if (message.autoSend) {
     if (attachmentResult && verifyAttachmentForSubmit) {
-      const stillReady = await verifyAttachmentForSubmit(attachmentResult, input);
+      const stillReady = await verifyAttachmentForSubmit(attachmentResult, activeInput);
       if (!stillReady) {
         throw new Error(t("attachmentUnstable"));
       }
     }
 
     const submitResult = await submitPrompt({
-      input,
+      input: activeInput,
       prompt: message.prompt,
       beforeValue,
       attachmentResult,
@@ -49,7 +51,7 @@ export async function runComposerFlow({
     }
   }
 
-  return { input, attachmentResult };
+  return { input: activeInput, attachmentResult };
 }
 
 export function createStabilityTracker(settleMs) {

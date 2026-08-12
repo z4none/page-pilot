@@ -114,7 +114,7 @@ Expected manifest capabilities:
   "content_scripts": [
     {
       "matches": ["https://chat.deepseek.com/*"],
-      "js": ["deepseek-content.js"],
+      "js": ["provider-content.js"],
       "all_frames": true
     }
   ]
