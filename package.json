@@ -1,6 +1,6 @@
 {
   "name": "page-pilot",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Chrome extension that extracts page content and sends summary prompts to supported AI web chats.",
   "type": "module",
