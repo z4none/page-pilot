@@ -1,4 +1,12 @@
-import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
+import {
+  attachmentNodesLeftComposer,
+  createStabilityTracker,
+  runComposerFlow,
+} from "./composer-flow.js";
+import {
+  isActuallyEditableInput,
+  waitForStableProviderInput,
+} from "./provider-readiness.js";
 
 (() => {
   const SOURCE = "page-pilot";
@@ -92,12 +100,32 @@ import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
       "textarea",
       ];
     const candidates = deepQueryAll(selectors);
+    const usable = candidates.find((element) => isUsableChatInput(element));
+    if (usable) return usable;
 
-    return candidates.find((element) => isUsableChatInput(element)) || null;
+    if (!isGeminiPage()) {
+      const inactiveShell = candidates.find((element) => (
+        isVisibleEditable(element)
+        && element.matches?.(".chat-input-editor")
+        && element.getAttribute?.("contenteditable") === "false"
+      ));
+      if (inactiveShell) {
+        clickAndFocus(inactiveShell);
+        inactiveShell.focus?.();
+        debug("activated inactive provider input shell", {
+          provider: getProviderStrategy().provider,
+          tag: inactiveShell.tagName,
+          className: String(inactiveShell.className || ""),
+        });
+      }
+    }
+
+    return null;
   }
 
   function isUsableChatInput(element) {
     if (!isVisibleEditable(element)) return false;
+    if (!isActuallyEditableInput(element)) return false;
     if (isGeminiPage() && element.matches?.("textarea.gds-body-l")) return false;
     return true;
   }
@@ -259,7 +287,16 @@ import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
       await runComposerFlow({
         message,
         waitForInput: async () => {
-          const input = await waitForElement(findChatInput, 30000);
+          const input = providerStrategy.provider === "gemini"
+            ? await waitForStableProviderInput({
+                getReadyState: () => document.readyState,
+                findInput: findChatInput,
+                isUsableInput: isUsableChatInput,
+                documentReadyTimeoutMs: 30000,
+                inputTimeoutMs: 30000,
+                settleMs: 800,
+              })
+            : await waitForElement(findChatInput, 30000);
           debug("input found", {
             provider: providerStrategy.provider,
             tag: input.tagName,
@@ -313,18 +350,6 @@ import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
           return filled;
         },
         verifyAttachmentForSubmit: async (attachmentResult) => {
-          if (providerStrategy.attachmentReadiness === "sendButton") {
-            const sendButton = await waitForElement(findSendButton, 15000, describeSendButtonCandidates);
-            debug("attachment gate via send button", {
-              provider: providerStrategy.provider,
-              tag: sendButton.tagName,
-              className: String(sendButton.className || ""),
-              ariaDisabled: sendButton.getAttribute("aria-disabled") || "",
-              disabled: Boolean(sendButton.disabled),
-              clickable: isClickable(sendButton),
-            });
-            return true;
-          }
           await waitForAttachmentMinimumAge(attachmentResult, providerStrategy);
           const evidence = await waitForAttachmentReady(
             attachmentResult.fileName,
@@ -426,7 +451,6 @@ import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
         attachmentTimeoutMs: 30000,
         attachmentSettleMs: 1200,
         attachmentMinAgeMs: 0,
-        attachmentReadiness: "sendButton",
         preSubmitDelayMs: 800,
       };
     }
@@ -589,7 +613,8 @@ import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
     const semanticNodes = query(semanticSelectors)
       .filter(isVisibleEditable)
       .filter((node) => !node.matches?.("button, [role='button'], label, input"));
-    const candidateCounts = countSignatures([...filenameNodes, ...semanticNodes]);
+    const candidateNodes = [...new Set([...filenameNodes, ...semanticNodes])];
+    const candidateCounts = countSignatures(candidateNodes);
     const fileInputFiles = query(['input[type="file"]'])
       .flatMap((input) => Array.from(input.files || []))
       .map((file) => `${file.name}|${file.size}|${file.type}`);
@@ -603,6 +628,7 @@ import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
 
     return {
       candidateCounts,
+      candidateNodes,
       fileInputFiles,
       progressCounts,
       candidatePreview: [...candidateCounts.keys()].slice(0, 8),
@@ -732,12 +758,18 @@ import { createStabilityTracker, runComposerFlow } from "./composer-flow.js";
     while (Date.now() - startedAt <= timeoutMs) {
       const current = captureAttachmentSnapshot(fileName, root);
       const currentCount = totalAttachmentCandidateCount(current);
-      if (currentCount < beforeCount || (!root.isConnected && currentCount === 0)) {
+      const originalNodesLeftComposer = attachmentNodesLeftComposer(before.candidateNodes, root);
+      const originalFileWasCleared = before.fileInputFiles.length > 0 && current.fileInputFiles.length === 0;
+      const noComposerAttachmentBaseline = beforeCount === 0;
+      if (originalNodesLeftComposer || originalFileWasCleared || noComposerAttachmentBaseline) {
         debug("attachment consumed", {
           fileName,
           waitedMs: Date.now() - startedAt,
           beforeCount,
           currentCount,
+          originalNodesLeftComposer,
+          originalFileWasCleared,
+          noComposerAttachmentBaseline,
         });
         return true;
       }

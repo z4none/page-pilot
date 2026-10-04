@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createStabilityTracker, runComposerFlow } from "../src/composer-flow.js";
+import {
+  attachmentNodesLeftComposer,
+  createStabilityTracker,
+  runComposerFlow,
+} from "../src/composer-flow.js";
 
 test("does not fill or submit until the attachment is ready", async () => {
   const events = [];
@@ -159,4 +163,23 @@ test("submission cannot report success while the attachment remains in the compo
     }),
     /attachment remains in the input/,
   );
+});
+
+test("an attachment sent to chat no longer counts as remaining when its original composer node leaves", () => {
+  const originalAttachment = { isConnected: true };
+  const sentMessageAttachment = { isConnected: true };
+  const composer = {
+    contains(node) {
+      return node === sentMessageAttachment;
+    },
+  };
+
+  assert.equal(attachmentNodesLeftComposer([originalAttachment], composer), true);
+});
+
+test("an attachment still represented by its original composer node remains unconsumed", () => {
+  const attachment = { isConnected: true };
+  const composer = { contains: (node) => node === attachment };
+
+  assert.equal(attachmentNodesLeftComposer([attachment], composer), false);
 });

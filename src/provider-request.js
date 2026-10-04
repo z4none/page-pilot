@@ -1,3 +1,3 @@
-export function resolveRequestProviderId(pendingProviderId, currentProviderId) {
-  return pendingProviderId || currentProviderId;
+export function resolveRequestProviderId(activeProviderId, pendingProviderId, currentProviderId) {
+  return pendingProviderId || activeProviderId || currentProviderId;
 }

@@ -77,6 +77,13 @@ export function createStabilityTracker(settleMs) {
   };
 }
 
+export function attachmentNodesLeftComposer(nodes, root) {
+  if (!nodes?.length) return true;
+  if (!root?.contains) return false;
+
+  return !nodes.some((node) => node?.isConnected !== false && root.contains(node));
+}
+
 function readComposerValue(input) {
   if (!input) return "";
   if (input.matches?.("textarea") || input.matches?.("input")) {

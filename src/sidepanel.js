@@ -48,6 +48,7 @@ const state = {
   pendingRequestId: null,
   pendingProviderId: null,
   activeRequestProviderId: null,
+  activeRequestId: null,
   pendingAutoSend: false,
   pendingStartedAt: 0,
   sendPending: false,
@@ -207,15 +208,27 @@ function handleRuntimeMessage(message) {
   }
 
   if (message?.type === "PAGE_PILOT_PROVIDER_SEND_RESULT") {
-    const resultProvider = getProviderIdFromUrl(message.href || message.chatUrl || "");
-    if (state.activeRequestProviderId && resultProvider && resultProvider !== state.activeRequestProviderId) {
+    const expectedRequestId = state.pendingRequestId || state.activeRequestId;
+    if (!expectedRequestId || message.requestId !== expectedRequestId) {
       debug("stale provider result ignored", {
-        activeProvider: state.activeRequestProviderId,
+        expectedRequestId,
+        resultRequestId: message.requestId || "",
+        href: message.href || message.chatUrl || "",
+      });
+      return;
+    }
+
+    const expectedProviderId = state.pendingProviderId || state.activeRequestProviderId;
+    const resultProvider = getProviderIdFromUrl(message.href || message.chatUrl || "");
+    if (expectedProviderId && resultProvider && resultProvider !== expectedProviderId) {
+      debug("stale provider result ignored", {
+        expectedProvider: expectedProviderId,
         resultProvider,
         href: message.href || message.chatUrl || "",
       });
       return;
     }
+
     const provider = getRequestProvider();
     rememberProviderChatUrl(message.href || message.chatUrl || "");
     if (message.ok) {
@@ -229,11 +242,20 @@ function handleRuntimeMessage(message) {
       enterProviderState(errorMessage);
     }
     state.activeRequestProviderId = null;
+    state.activeRequestId = null;
   }
 
   if (message?.type === "PAGE_PILOT_PROVIDER_READY") {
     const readyProvider = getProviderIdFromUrl(message.href || message.chatUrl || "");
-    if (state.pendingProviderId && readyProvider && readyProvider !== state.pendingProviderId) {
+    if (!state.sendPending || !state.pendingRequestId || message.requestId !== state.pendingRequestId) {
+      debug("stale provider ready ignored", {
+        pendingRequestId: state.pendingRequestId || "",
+        readyRequestId: message.requestId || "",
+        href: message.href || message.chatUrl || "",
+      });
+      return;
+    }
+    if (readyProvider && readyProvider !== state.pendingProviderId) {
       debug("stale provider ready ignored", {
         pendingProvider: state.pendingProviderId,
         readyProvider,
@@ -393,10 +415,14 @@ async function sendToProvider(options = {}) {
   state.pendingAttachment = attachment;
   state.pendingRequestId = createRequestId();
   state.pendingProviderId = requestProvider.id;
+  state.activeRequestProviderId = null;
+  state.activeRequestId = null;
   state.pendingAutoSend = autoSend;
   state.pendingStartedAt = Date.now();
   state.sendPending = true;
+  state.providerReady = false;
 
+  enterProviderState(autoSend ? t("uploading", requestProvider.label) : t("filling", requestProvider.label));
   await chrome.storage.session.set({
     [STORAGE_KEYS.payload]: {
       ...state.payload,
@@ -405,7 +431,6 @@ async function sendToProvider(options = {}) {
     },
   });
 
-  enterProviderState(autoSend ? t("uploading", requestProvider.label) : t("filling", requestProvider.label));
   requestFrameReadiness("send-start", true);
   flushPendingPrompt();
 }
@@ -432,8 +457,7 @@ async function maybeAutoSend(payload, { source = "unknown", claimedPayloadKey = 
     promptLength: payload?.prompt?.length || 0,
     markdownLength: payload?.markdown?.length || 0,
   });
-  enterProviderState(t("preparing", getCurrentProvider().label));
-  sendToProvider({
+  void sendToProvider({
     autoSend: true,
     promptOverride: payload?.prompt || "",
   });
@@ -599,14 +623,16 @@ function sendCurrentPrompt() {
   elements.providerStatus.textContent = state.pendingAutoSend
     ? t("uploading", getCurrentProvider().label)
     : t("filling", getCurrentProvider().label);
+  const requestId = state.pendingRequestId || createRequestId();
   state.sendPending = false;
   state.providerReady = false;
   state.activeRequestProviderId = state.pendingProviderId;
+  state.activeRequestId = requestId;
 
   elements.providerFrame.contentWindow?.postMessage({
     source: SOURCE,
     type: "SEND_PROMPT",
-    requestId: state.pendingRequestId || createRequestId(),
+    requestId,
     prompt: messagePrompt,
     autoSend: state.pendingAutoSend,
     attachment: messageAttachment,
@@ -617,8 +643,8 @@ function sendCurrentPrompt() {
   state.pendingProviderId = null;
   state.pendingStartedAt = 0;
   elements.providerStatus.textContent = state.pendingAutoSend
-    ? t("sent", getCurrentProvider().label)
-    : t("filling", getCurrentProvider().label);
+    ? t("uploading", provider.label)
+    : t("filling", provider.label);
   debug("postMessage sent", {
     autoSend: state.pendingAutoSend,
     attachmentName: messageAttachment?.name || "",
@@ -655,7 +681,14 @@ function flushPendingPrompt() {
       const errorMessage = t("sendFailed", t("notReady", getCurrentProvider().label));
       elements.providerStatus.textContent = errorMessage;
       setStatus(errorMessage);
+      state.pendingPrompt = null;
+      state.pendingAttachment = null;
+      state.pendingRequestId = null;
+      state.pendingProviderId = null;
+      state.pendingAutoSend = false;
+      state.pendingStartedAt = 0;
       state.sendPending = false;
+      state.providerReady = false;
       debug("send wait timed out", {
         pendingAgeMs,
         frameSrc: elements.providerFrame.src,
@@ -681,6 +714,9 @@ async function resetSession() {
   state.pendingPrompt = null;
   state.pendingAttachment = null;
   state.pendingRequestId = null;
+  state.pendingProviderId = null;
+  state.activeRequestProviderId = null;
+  state.activeRequestId = null;
   state.sendPending = false;
   state.pendingStartedAt = 0;
   state.autoSentPayloadKey = null;
@@ -739,7 +775,8 @@ function getCurrentProvider() {
 
 function getRequestProvider() {
   const providerId = resolveRequestProviderId(
-    state.activeRequestProviderId || state.pendingProviderId,
+    state.activeRequestProviderId,
+    state.pendingProviderId,
     state.settings.provider,
   );
   return PROVIDERS[normalizeProviderId(providerId)] || PROVIDERS.kimi;

@@ -4,6 +4,10 @@ import test from "node:test";
 import { resolveRequestProviderId } from "../src/provider-request.js";
 
 test("a pending request keeps its provider when settings change", () => {
-  assert.equal(resolveRequestProviderId("kimi", "gemini"), "kimi");
-  assert.equal(resolveRequestProviderId("", "deepseek"), "deepseek");
+  assert.equal(resolveRequestProviderId("", "kimi", "gemini"), "kimi");
+  assert.equal(resolveRequestProviderId("", "", "deepseek"), "deepseek");
+});
+
+test("a pending Gemini request overrides an older active Kimi request", () => {
+  assert.equal(resolveRequestProviderId("kimi", "gemini", "kimi"), "gemini");
 });
